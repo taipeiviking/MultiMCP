@@ -10,14 +10,7 @@ export default function Dashboard({ creds, onChangeCreds }) {
   const [busy, setBusy] = useState(false);
   const [dbg, setDbg] = useState(null);
   const [autostart, setAutostart] = useState(null); // {enabled, isDev}
-  const [copied, setCopied] = useState(false);
   const [logView, setLogView] = useState(null); // { text, path } when viewer open
-
-  async function copyLogPath() {
-    await api.debug?.copyLogPath();
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }
 
   async function viewLog() {
     const r = await api.debug?.readLog();
@@ -122,17 +115,9 @@ export default function Dashboard({ creds, onChangeCreds }) {
           <span>
             Debug log: <code>{dbg.logPath}</code>
           </span>
-          <div className="diag__actions">
-            <button className="btn btn--small" onClick={viewLog}>
-              View log
-            </button>
-            <button className="btn btn--small" onClick={() => api.debug.revealLog()}>
-              Reveal folder
-            </button>
-            <button className="btn btn--small" onClick={copyLogPath}>
-              {copied ? "✓ Copied" : "Copy path"}
-            </button>
-          </div>
+          <button className="btn btn--small" onClick={viewLog}>
+            View log
+          </button>
         </div>
       )}
 

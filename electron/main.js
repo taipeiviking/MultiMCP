@@ -19,7 +19,6 @@ const {
   Menu,
   nativeImage,
   Notification,
-  clipboard,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -463,29 +462,6 @@ function registerIpc() {
     versions: process.versions,
     platform: process.platform,
   }));
-  handle("debug:revealLog", async () => {
-    const p = log.getLogPath();
-    if (!p) return { ok: false, error: "No log path." };
-    const dir = path.dirname(p);
-    // Open the containing FOLDER via openPath. We deliberately avoid
-    // shell.showItemInFolder: on Windows it routinely raises a native
-    // "Location is not available" dialog (even when the path exists) when
-    // Explorer is already open or for %APPDATA%\Roaming paths. openPath is
-    // reliable and returns an error string instead of popping an OS dialog.
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-      const err = await shell.openPath(dir);
-      if (err) {
-        log.warn("revealLog", "openPath failed", { dir, err });
-        return { ok: false, error: err, path: dir };
-      }
-      return { ok: true, path: dir };
-    } catch (e) {
-      log.error("revealLog", "failed", { message: String(e), dir });
-      return { ok: false, error: String(e), path: dir };
-    }
-  });
-
   // Read the log file for the in-app viewer. Returns the tail (last ~256 KB) so
   // huge logs don't blow up the renderer. We view in-app rather than launching
   // an external editor because the Windows 11 Store Notepad fails to open
@@ -517,14 +493,6 @@ function registerIpc() {
       log.error("readLog", "failed", { message: String(e), p });
       return { ok: false, error: String(e), path: p };
     }
-  });
-
-  // Copy the log file path to the clipboard.
-  handle("debug:copyLogPath", () => {
-    const p = log.getLogPath();
-    if (!p) return { ok: false, error: "No log path." };
-    clipboard.writeText(p);
-    return { ok: true, path: p };
   });
 
   // tray / autostart

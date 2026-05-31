@@ -154,7 +154,6 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 .note { margin-top: 16px; }
 .diag { margin-top: 18px; display: flex; align-items: center; gap: 10px; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 12px; }
 .diag code { word-break: break-all; }
-.diag__actions { display: flex; gap: 8px; flex: none; }
 
 /* Modal + log viewer */
 .modal-overlay {

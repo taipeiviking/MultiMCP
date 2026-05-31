@@ -28,9 +28,7 @@ contextBridge.exposeInMainWorld("api", {
   },
   debug: {
     get: () => ipcRenderer.invoke("debug:get"),
-    revealLog: () => ipcRenderer.invoke("debug:revealLog"),
     readLog: () => ipcRenderer.invoke("debug:readLog"),
-    copyLogPath: () => ipcRenderer.invoke("debug:copyLogPath"),
   },
   autostart: {
     get: () => ipcRenderer.invoke("autostart:get"),
