@@ -49,6 +49,13 @@ export default function Dashboard({ creds, onChangeCreds }) {
     <div className="dash">
       <div className="dash__head">
         <h1>Accounts</h1>
+        <button
+          className="btn btn--ghost btn--small"
+          onClick={() => api.help?.open()}
+          title="Open the online help page"
+        >
+          ? Help
+        </button>
       </div>
 
       <div className="add-row">
