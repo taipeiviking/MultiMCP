@@ -486,6 +486,37 @@ function registerIpc() {
     }
   });
 
+  // Open the log FILE directly in the default text editor.
+  handle("debug:openLog", async () => {
+    const p = log.getLogPath();
+    if (!p) return { ok: false, error: "No log path." };
+    try {
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      if (!fs.existsSync(p)) fs.writeFileSync(p, "");
+      const err = await shell.openPath(p);
+      if (err) {
+        // .log may have no default association; fall back to opening the folder.
+        log.warn("openLog", "openPath(file) failed; revealing folder", { p, err });
+        const dErr = await shell.openPath(path.dirname(p));
+        return dErr
+          ? { ok: false, error: err, path: p }
+          : { ok: true, fellBackToFolder: true, path: path.dirname(p) };
+      }
+      return { ok: true, path: p };
+    } catch (e) {
+      log.error("openLog", "failed", { message: String(e), p });
+      return { ok: false, error: String(e), path: p };
+    }
+  });
+
+  // Copy the log file path to the clipboard.
+  handle("debug:copyLogPath", () => {
+    const p = log.getLogPath();
+    if (!p) return { ok: false, error: "No log path." };
+    clipboard.writeText(p);
+    return { ok: true, path: p };
+  });
+
   // tray / autostart
   handle("autostart:get", () => ({ enabled: getAutostartEnabled(), isDev }));
   handle("autostart:set", ({ enabled }) => ({

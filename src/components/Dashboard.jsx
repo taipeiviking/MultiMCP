@@ -116,7 +116,7 @@ export default function Dashboard({ creds, onChangeCreds }) {
             Debug log: <code>{dbg.logPath}</code>
           </span>
           <div className="diag__actions">
-            <button className="btn btn--small" onClick={() => api.debug.openLog()}>
+            <button className="btn btn--small" onClick={() => api.debug.openLog().catch(() => {})}>
               Open log file
             </button>
             <button className="btn btn--small" onClick={() => api.debug.revealLog()}>
