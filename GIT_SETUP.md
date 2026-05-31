@@ -34,6 +34,15 @@ git branch -M main
 git push -u origin main
 ```
 
+## Gotcha: git must use Windows OpenSSH (not its bundled ssh)
+`ssh -T` works from PowerShell (Windows OpenSSH reads `~/.ssh/config`), but
+`git push` failed with `Could not resolve hostname github-taipeiviking` because
+git used its bundled MinGW ssh, which didn't see the host alias. Fixed repo-LOCAL:
+```
+git config --local core.sshCommand "C:/Windows/System32/OpenSSH/ssh.exe"
+```
+Already set in this repo. If a future clone hits the same error, re-run it.
+
 ## Don't
 - Don't set anything with `--global`.
 - Don't use a bare `github.com` remote (it would pick the wrong key/account).
