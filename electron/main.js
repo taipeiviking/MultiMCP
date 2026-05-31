@@ -23,6 +23,7 @@ const {
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { spawn } = require("child_process");
 
 const credentials = require("./services/credentials");
 const accounts = require("./services/accounts");
@@ -486,16 +487,37 @@ function registerIpc() {
     }
   });
 
-  // Open the log FILE directly in the default text editor.
+  // Open the log FILE in a text editor.
+  // NOTE: on Windows we deliberately spawn notepad.exe with the path as an
+  // argument instead of shell.openPath(file). shell.openPath uses ShellExecute's
+  // "open" verb, which the Windows 11 Store Notepad mishandles — it launches but
+  // then shows "The system cannot find the path specified" even though the file
+  // exists. Passing the path as an explicit argv to notepad.exe avoids that bug.
   handle("debug:openLog", async () => {
     const p = log.getLogPath();
     if (!p) return { ok: false, error: "No log path." };
     try {
       fs.mkdirSync(path.dirname(p), { recursive: true });
       if (!fs.existsSync(p)) fs.writeFileSync(p, "");
+
+      if (process.platform === "win32") {
+        try {
+          const child = spawn("notepad.exe", [p], {
+            detached: true,
+            stdio: "ignore",
+          });
+          child.on("error", () => {}); // handled by fallback below
+          child.unref();
+          return { ok: true, path: p, via: "notepad" };
+        } catch (e) {
+          log.warn("openLog", "notepad spawn failed; trying openPath", {
+            message: String(e),
+          });
+        }
+      }
+
       const err = await shell.openPath(p);
       if (err) {
-        // .log may have no default association; fall back to opening the folder.
         log.warn("openLog", "openPath(file) failed; revealing folder", { p, err });
         const dErr = await shell.openPath(path.dirname(p));
         return dErr
