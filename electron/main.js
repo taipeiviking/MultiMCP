@@ -481,27 +481,22 @@ function registerIpc() {
     const p = log.getLogPath();
     if (!p) return { ok: false, error: "No log path." };
     const dir = path.dirname(p);
+    // Open the containing FOLDER via openPath. We deliberately avoid
+    // shell.showItemInFolder: on Windows it routinely raises a native
+    // "Location is not available" dialog (even when the path exists) when
+    // Explorer is already open or for %APPDATA%\Roaming paths. openPath is
+    // reliable and returns an error string instead of popping an OS dialog.
     try {
-      // Ensure the folder exists, then open it. showItemInFolder can raise a
-      // shell "Location is not available" error on some Windows setups, so we
-      // open the containing folder via openPath (reliable) and select the file
-      // when possible.
       fs.mkdirSync(dir, { recursive: true });
-      if (fs.existsSync(p)) {
-        shell.showItemInFolder(p);
-      } else {
-        const err = await shell.openPath(dir);
-        if (err) return { ok: false, error: err, path: dir };
+      const err = await shell.openPath(dir);
+      if (err) {
+        log.warn("revealLog", "openPath failed", { dir, err });
+        return { ok: false, error: err, path: dir };
       }
-      return { ok: true, path: p };
+      return { ok: true, path: dir };
     } catch (e) {
-      // Last-resort fallback: try to open the folder directly.
-      try {
-        const err = await shell.openPath(dir);
-        return { ok: !err, error: err || undefined, path: dir };
-      } catch (e2) {
-        return { ok: false, error: String(e2), path: dir };
-      }
+      log.error("revealLog", "failed", { message: String(e), dir });
+      return { ok: false, error: String(e), path: dir };
     }
   });
 
