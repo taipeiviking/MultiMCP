@@ -21,6 +21,7 @@ const {
   Notification,
 } = require("electron");
 const path = require("path");
+const fs = require("fs");
 
 const credentials = require("./services/credentials");
 const accounts = require("./services/accounts");
@@ -30,6 +31,7 @@ const log = require("./services/logger");
 
 const isDev = !app.isPackaged;
 const APP_ID = "com.local.googleworkspacemanager";
+const HELP_URL = "https://github.com/taipeiviking/MultiMCP/blob/main/HELP.md";
 const EXPIRY_WARN_MS = 48 * 3600 * 1000; // warn when re-auth is due within 48h
 const EXPIRY_CHECK_INTERVAL_MS = 6 * 3600 * 1000; // re-check every 6h
 
@@ -58,6 +60,8 @@ function bootstrap() {
       argv: process.argv.slice(1),
     });
     registerIpc();
+    createMenu();
+    applyAutostartPreference();
     createTray();
     const startHidden =
       process.argv.includes("--hidden") ||
@@ -89,14 +93,29 @@ function bootstrap() {
   );
 }
 
+// --- Application menu -------------------------------------------------------
+// Replace the default File/Edit/View/Window/Help menus with a single clickable
+// "Help" item that opens the online help page. (A custom application menu also
+// removes the otherwise-empty File/Edit/Window menus.)
+function createMenu() {
+  const template = [
+    {
+      label: "Help",
+      // A top-level item with a click and no submenu acts as a button on Windows.
+      click: () => shell.openExternal(HELP_URL),
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 // --- Window -----------------------------------------------------------------
 
 function createWindow({ show } = { show: true }) {
   win = new BrowserWindow({
-    width: 1100,
-    height: 760,
-    minWidth: 880,
-    minHeight: 600,
+    width: 1300,
+    height: 892,
+    minWidth: 980,
+    minHeight: 680,
     show: false, // shown on ready-to-show (avoids white flash) unless startHidden
     backgroundColor: "#0e1116",
     title: "Google Workspace Manager",
@@ -259,34 +278,54 @@ function rebuildTrayMenu() {
 
 // --- Autostart (OS login item) ---------------------------------------------
 
+// Autostart preference is persisted in settings.json and defaults to ON. The
+// real OS login item is only registered in a packaged build (a dev login item
+// would point at the raw Electron binary). On launch we reconcile the OS login
+// item to the saved preference (applyAutostartPreference), so "default on"
+// actually takes effect the first time the installed app runs.
+function autostartPref() {
+  return credentials.readSettings().autostart !== false; // default true
+}
+
 function getAutostartEnabled() {
+  if (isDev) return autostartPref();
   try {
     return app.getLoginItemSettings().openAtLogin;
   } catch {
-    return false;
+    return autostartPref();
   }
 }
 
 function setAutostartEnabled(enabled) {
+  enabled = !!enabled;
   try {
-    if (isDev) {
-      // In dev the login item would point at the Electron binary, not the real
-      // app — registering it is meaningless/misleading. Reflect intent only.
-      log.warn("autostart", "ignored in dev (only applies to packaged build)", {
-        requested: enabled,
-      });
-    } else {
+    credentials.patchSettings({ autostart: enabled });
+    if (!isDev) {
       app.setLoginItemSettings({
         openAtLogin: enabled,
         args: ["--hidden"], // launch straight to the tray, no window
       });
-      log.info("autostart", "set", { enabled });
     }
+    log.info("autostart", "set", { enabled, isDev });
   } catch (e) {
     log.error("autostart", "failed", { message: String(e) });
   }
   rebuildTrayMenu();
   return getAutostartEnabled();
+}
+
+// Reconcile the OS login item with the saved preference at startup (packaged).
+function applyAutostartPreference() {
+  if (isDev) return;
+  const desired = autostartPref();
+  try {
+    if (app.getLoginItemSettings().openAtLogin !== desired) {
+      app.setLoginItemSettings({ openAtLogin: desired, args: ["--hidden"] });
+      log.info("autostart", "reconciled at launch", { desired });
+    }
+  } catch (e) {
+    log.error("autostart", "reconcile failed", { message: String(e) });
+  }
 }
 
 // --- Expiry checks ----------------------------------------------------------
@@ -409,10 +448,32 @@ function registerIpc() {
     versions: process.versions,
     platform: process.platform,
   }));
-  handle("debug:revealLog", () => {
+  handle("debug:revealLog", async () => {
     const p = log.getLogPath();
-    if (p) shell.showItemInFolder(p);
-    return { ok: !!p, path: p };
+    if (!p) return { ok: false, error: "No log path." };
+    const dir = path.dirname(p);
+    try {
+      // Ensure the folder exists, then open it. showItemInFolder can raise a
+      // shell "Location is not available" error on some Windows setups, so we
+      // open the containing folder via openPath (reliable) and select the file
+      // when possible.
+      fs.mkdirSync(dir, { recursive: true });
+      if (fs.existsSync(p)) {
+        shell.showItemInFolder(p);
+      } else {
+        const err = await shell.openPath(dir);
+        if (err) return { ok: false, error: err, path: dir };
+      }
+      return { ok: true, path: p };
+    } catch (e) {
+      // Last-resort fallback: try to open the folder directly.
+      try {
+        const err = await shell.openPath(dir);
+        return { ok: !err, error: err || undefined, path: dir };
+      } catch (e2) {
+        return { ok: false, error: String(e2), path: dir };
+      }
+    }
   });
 
   // tray / autostart

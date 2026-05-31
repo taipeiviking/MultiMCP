@@ -106,10 +106,20 @@ async function getClientSecret() {
   return keytar.getPassword(SERVICE, SECRET_KEY);
 }
 
+// Merge a partial object into settings.json and persist (for non-secret prefs
+// like the autostart choice). Returns the updated settings.
+function patchSettings(partial) {
+  const s = readSettings();
+  Object.assign(s, partial || {});
+  writeSettings(s);
+  return s;
+}
+
 module.exports = {
   getClientConfig,
   saveClientConfig,
   getClientSecret,
   credentialsDir,
   readSettings,
+  patchSettings,
 };

@@ -84,17 +84,17 @@ export default function Dashboard({ creds, onChangeCreds }) {
       </p>
 
       {autostart && (
-        <label className="diag muted small" style={{ cursor: "pointer" }}>
+        <label className="diag muted small toggle-row">
+          <input
+            type="checkbox"
+            checked={!!autostart.enabled}
+            onChange={toggleAutostart}
+          />
           <span>
-            <input
-              type="checkbox"
-              checked={!!autostart.enabled}
-              onChange={toggleAutostart}
-              disabled={autostart.isDev}
-              style={{ marginRight: 8 }}
-            />
             Start automatically with Windows (runs in the background tray)
-            {autostart.isDev && " — available in the installed app"}
+            {autostart.isDev && (
+              <em className="muted"> — takes effect in the installed app</em>
+            )}
           </span>
         </label>
       )}
