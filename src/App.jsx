@@ -33,13 +33,22 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <p className="brand__desc">
+        <div className="topbar__row">
+          <p className="brand__desc">
           Connect multiple Google Workspace accounts to Claude Desktop — sign in once,
           and Claude gets Gmail, Drive &amp; Calendar access per account. This app runs
           the diagnostics &amp; authentication backend (<code>workspace-mcp</code>)
           through <code>uvx</code>; Claude Desktop launches the same backend each
           session, so your accounts stay connected without re-signing in every time.
         </p>
+        <button
+          className="btn btn--ghost btn--small help-btn"
+          onClick={() => api.help?.open()}
+          title="Open the online help page"
+        >
+          ? Help
+        </button>
+        </div>
       </header>
 
       <main className="content">

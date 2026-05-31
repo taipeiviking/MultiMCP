@@ -60,7 +60,7 @@ function bootstrap() {
       argv: process.argv.slice(1),
     });
     registerIpc();
-    createMenu();
+    Menu.setApplicationMenu(null); // no native menu bar; Help is an in-app button
     applyAutostartPreference();
     createTray();
     const startHidden =
@@ -91,21 +91,6 @@ function bootstrap() {
   process.on("unhandledRejection", (reason) =>
     log.error("process", "unhandledRejection", { reason: String(reason) })
   );
-}
-
-// --- Application menu -------------------------------------------------------
-// Replace the default File/Edit/View/Window/Help menus with a single clickable
-// "Help" item that opens the online help page. (A custom application menu also
-// removes the otherwise-empty File/Edit/Window menus.)
-function createMenu() {
-  const template = [
-    {
-      label: "Help",
-      // A top-level item with a click and no submenu acts as a button on Windows.
-      click: () => shell.openExternal(HELP_URL),
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 // --- Window -----------------------------------------------------------------

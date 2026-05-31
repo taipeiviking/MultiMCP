@@ -34,4 +34,7 @@ contextBridge.exposeInMainWorld("api", {
     get: () => ipcRenderer.invoke("autostart:get"),
     set: (enabled) => ipcRenderer.invoke("autostart:set", { enabled }),
   },
+  help: {
+    open: () => ipcRenderer.invoke("help:open"),
+  },
 });
