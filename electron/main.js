@@ -301,13 +301,13 @@ function autostartPref() {
   return credentials.readSettings().autostart !== false; // default true
 }
 
+// The checkbox always reflects the *persisted preference*, not the live OS login
+// item. Querying the OS item is unreliable (returns false when running the loose
+// win-unpacked exe, and the path/args must match exactly), which made the toggle
+// look unchecked and "not clickable". The OS login item is a best-effort
+// side-effect we set in setAutostartEnabled and reconcile at launch.
 function getAutostartEnabled() {
-  if (isDev) return autostartPref();
-  try {
-    return app.getLoginItemSettings().openAtLogin;
-  } catch {
-    return autostartPref();
-  }
+  return autostartPref();
 }
 
 function setAutostartEnabled(enabled) {
