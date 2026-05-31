@@ -23,7 +23,6 @@ const {
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { spawn } = require("child_process");
 
 const credentials = require("./services/credentials");
 const accounts = require("./services/accounts");
@@ -487,46 +486,35 @@ function registerIpc() {
     }
   });
 
-  // Open the log FILE in a text editor.
-  // NOTE: on Windows we deliberately spawn notepad.exe with the path as an
-  // argument instead of shell.openPath(file). shell.openPath uses ShellExecute's
-  // "open" verb, which the Windows 11 Store Notepad mishandles — it launches but
-  // then shows "The system cannot find the path specified" even though the file
-  // exists. Passing the path as an explicit argv to notepad.exe avoids that bug.
-  handle("debug:openLog", async () => {
+  // Read the log file for the in-app viewer. Returns the tail (last ~256 KB) so
+  // huge logs don't blow up the renderer. We view in-app rather than launching
+  // an external editor because the Windows 11 Store Notepad fails to open
+  // %APPDATA% paths ("system cannot find the path specified") no matter how it's
+  // invoked (shell.openPath OR spawning the notepad.exe app-execution alias).
+  handle("debug:readLog", () => {
     const p = log.getLogPath();
     if (!p) return { ok: false, error: "No log path." };
     try {
-      fs.mkdirSync(path.dirname(p), { recursive: true });
-      if (!fs.existsSync(p)) fs.writeFileSync(p, "");
-
-      if (process.platform === "win32") {
-        try {
-          const child = spawn("notepad.exe", [p], {
-            detached: true,
-            stdio: "ignore",
-          });
-          child.on("error", () => {}); // handled by fallback below
-          child.unref();
-          return { ok: true, path: p, via: "notepad" };
-        } catch (e) {
-          log.warn("openLog", "notepad spawn failed; trying openPath", {
-            message: String(e),
-          });
+      if (!fs.existsSync(p)) return { ok: true, text: "(log is empty)", path: p, bytes: 0 };
+      const MAX = 256 * 1024;
+      const stat = fs.statSync(p);
+      const fd = fs.openSync(p, "r");
+      try {
+        const start = stat.size > MAX ? stat.size - MAX : 0;
+        const len = stat.size - start;
+        const buf = Buffer.alloc(len);
+        fs.readSync(fd, buf, 0, len, start);
+        let text = buf.toString("utf8");
+        if (start > 0) {
+          text = "…(showing last 256 KB of " + Math.round(stat.size / 1024) + " KB)…\n" +
+            text.slice(text.indexOf("\n") + 1);
         }
+        return { ok: true, text, path: p, bytes: stat.size };
+      } finally {
+        fs.closeSync(fd);
       }
-
-      const err = await shell.openPath(p);
-      if (err) {
-        log.warn("openLog", "openPath(file) failed; revealing folder", { p, err });
-        const dErr = await shell.openPath(path.dirname(p));
-        return dErr
-          ? { ok: false, error: err, path: p }
-          : { ok: true, fellBackToFolder: true, path: path.dirname(p) };
-      }
-      return { ok: true, path: p };
     } catch (e) {
-      log.error("openLog", "failed", { message: String(e), p });
+      log.error("readLog", "failed", { message: String(e), p });
       return { ok: false, error: String(e), path: p };
     }
   });

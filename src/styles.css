@@ -155,6 +155,35 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 .diag { margin-top: 18px; display: flex; align-items: center; gap: 10px; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 12px; }
 .diag code { word-break: break-all; }
 .diag__actions { display: flex; gap: 8px; flex: none; }
+
+/* Modal + log viewer */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  padding: 32px;
+}
+.modal {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  display: flex; flex-direction: column;
+}
+.log-modal { width: min(1000px, 92vw); height: min(80vh, 760px); }
+.modal__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
+}
+.modal__head-actions { display: flex; gap: 8px; }
+.log-modal__body {
+  flex: 1; margin: 0; overflow: auto;
+  padding: 14px 16px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  color: var(--text); background: var(--bg);
+  white-space: pre-wrap; word-break: break-word;
+}
+.modal__foot { padding: 8px 16px; border-top: 1px solid var(--line); }
+.modal__foot code { word-break: break-all; }
 .toggle-row { justify-content: flex-start; cursor: pointer; }
 .toggle-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--amber); flex: none; }
 .toggle-row span { cursor: pointer; }

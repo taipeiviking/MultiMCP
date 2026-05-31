@@ -11,11 +11,18 @@ export default function Dashboard({ creds, onChangeCreds }) {
   const [dbg, setDbg] = useState(null);
   const [autostart, setAutostart] = useState(null); // {enabled, isDev}
   const [copied, setCopied] = useState(false);
+  const [logView, setLogView] = useState(null); // { text, path } when viewer open
 
   async function copyLogPath() {
     await api.debug?.copyLogPath();
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+
+  async function viewLog() {
+    const r = await api.debug?.readLog();
+    if (r?.ok) setLogView({ text: r.text, path: r.path });
+    else setLogView({ text: "Could not read log: " + (r?.error || "unknown error"), path: dbg?.logPath });
   }
 
   const refresh = useCallback(async () => {
@@ -116,8 +123,8 @@ export default function Dashboard({ creds, onChangeCreds }) {
             Debug log: <code>{dbg.logPath}</code>
           </span>
           <div className="diag__actions">
-            <button className="btn btn--small" onClick={() => api.debug.openLog().catch(() => {})}>
-              Open log file
+            <button className="btn btn--small" onClick={viewLog}>
+              View log
             </button>
             <button className="btn btn--small" onClick={() => api.debug.revealLog()}>
               Reveal folder
@@ -129,6 +136,15 @@ export default function Dashboard({ creds, onChangeCreds }) {
         </div>
       )}
 
+      {logView && (
+        <LogViewer
+          text={logView.text}
+          path={logView.path}
+          onRefresh={viewLog}
+          onClose={() => setLogView(null)}
+        />
+      )}
+
       <div className="diag muted small">
         <span>
           Google OAuth client — one Client ID &amp; Secret shared by all accounts.
@@ -136,6 +152,26 @@ export default function Dashboard({ creds, onChangeCreds }) {
         <button className="btn btn--small" onClick={onChangeCreds}>
           {creds?._edit ? "Hide credentials" : "Edit credentials"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function LogViewer({ text, path, onRefresh, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal log-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__head">
+          <strong>Debug log</strong>
+          <div className="modal__head-actions">
+            <button className="btn btn--small" onClick={onRefresh}>Refresh</button>
+            <button className="btn btn--small" onClick={onClose}>Close</button>
+          </div>
+        </div>
+        <pre className="log-modal__body">{text}</pre>
+        <div className="modal__foot muted small">
+          <code>{path}</code>
+        </div>
       </div>
     </div>
   );
