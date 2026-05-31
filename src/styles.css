@@ -136,6 +136,8 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .note { margin-top: 16px; }
+.diag { margin-top: 18px; display: flex; align-items: center; gap: 10px; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 12px; }
+.diag code { word-break: break-all; }
 .error { color: var(--bad); font-size: 13px; margin: 6px 0; }
 code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
 

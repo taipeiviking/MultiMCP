@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const credentials = require("./credentials");
 const serverManager = require("./serverManager");
+const log = require("./logger");
 
 const SERVER_KEY = "google_workspace";
 
@@ -82,14 +83,28 @@ async function writeServerEntry() {
   fs.mkdirSync(path.dirname(p), { recursive: true });
 
   // Back up before touching.
+  let backup = null;
   if (fs.existsSync(p)) {
-    fs.copyFileSync(p, `${p}.bak-${Date.now()}`);
+    backup = `${p}.bak-${Date.now()}`;
+    fs.copyFileSync(p, backup);
   }
 
   const cfg = readConfig();
   cfg.mcpServers = cfg.mcpServers || {};
-  cfg.mcpServers[SERVER_KEY] = await buildEntry(); // merge: only our key is replaced
+  const entry = await buildEntry();
+  const existingServers = Object.keys(cfg.mcpServers);
+  cfg.mcpServers[SERVER_KEY] = entry; // merge: only our key is replaced
   fs.writeFileSync(p, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+
+  log.info("claudeConfig", "Wrote Claude Desktop config", {
+    path: p,
+    backup,
+    command: entry.command,
+    args: entry.args,
+    envKeys: Object.keys(entry.env),
+    secretInjected: Object.prototype.hasOwnProperty.call(entry.env, "GOOGLE_OAUTH_CLIENT_SECRET"),
+    preservedServers: existingServers.filter((k) => k !== SERVER_KEY),
+  });
 
   return { ok: true, path: p, note: "Restart Claude Desktop to load changes." };
 }

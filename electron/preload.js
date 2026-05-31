@@ -26,4 +26,8 @@ contextBridge.exposeInMainWorld("api", {
   server: {
     test: () => ipcRenderer.invoke("server:test"),
   },
+  debug: {
+    get: () => ipcRenderer.invoke("debug:get"),
+    revealLog: () => ipcRenderer.invoke("debug:revealLog"),
+  },
 });

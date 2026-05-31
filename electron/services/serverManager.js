@@ -27,6 +27,7 @@ const path = require("path");
 const { shell } = require("electron");
 const credentials = require("./credentials");
 const { credentialFilePath } = require("./accounts");
+const log = require("./logger");
 
 const SIGNIN_PORT = 8000; // redirect URI on the OAuth client: http://localhost:8000/oauth2callback
 const SIGNIN_TIMEOUT_MS = 180000; // how long we wait for the user to finish consent
@@ -150,6 +151,17 @@ async function authorizeAccount(email) {
   // Record the pre-auth signature of this account's credential file so we can
   // detect a *fresh* token (works for both first sign-in and re-auth).
   const before = credentialSignature(email);
+  const credPath = credentialFilePath(email);
+  log.info("authorize", "Starting sign-in", {
+    email,
+    uvx,
+    credentialsDir: dir,
+    expectedCredentialFile: credPath,
+    preAuthSignature: before,
+    clientIdTail: String(env.GOOGLE_OAUTH_CLIENT_ID).slice(-28),
+    hasSecret: !!env.GOOGLE_OAUTH_CLIENT_SECRET,
+    port: SIGNIN_PORT,
+  });
 
   await stopAll();
   signinProc = spawn(
@@ -157,19 +169,35 @@ async function authorizeAccount(email) {
     ["workspace-mcp", "--tools", "gmail", "drive", "calendar"],
     { env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }
   );
+  log.info("authorize", "Spawned workspace-mcp (stdio)", { pid: signinProc.pid });
 
   let stderr = "";
   signinProc.stderr.on("data", (d) => {
-    stderr += d.toString();
+    const chunk = d.toString();
+    stderr += chunk;
     if (stderr.length > 8000) stderr = stderr.slice(-8000);
+    // Forward the server's own logs (redacted) line by line — the richest signal
+    // for diagnosing OAuth failures (scope errors, redirect mismatch, etc.).
+    chunk
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .forEach((l) => log.info("uvx", l));
   });
+  signinProc.on("exit", (code, sig) =>
+    log.info("authorize", "workspace-mcp exited", { code, signal: sig })
+  );
+  signinProc.on("error", (e) =>
+    log.error("authorize", "workspace-mcp spawn error", { message: String(e) })
+  );
 
   const proc = signinProc;
   const rpc = makeRpcClient(proc);
 
   let authUrl = null;
   try {
-    await Promise.race([
+    log.info("authorize", "Sending initialize");
+    const initRes = await Promise.race([
       rpc.request("initialize", {
         protocolVersion: "2024-11-05",
         capabilities: {},
@@ -177,8 +205,12 @@ async function authorizeAccount(email) {
       }),
       rejectAfter(15000, "workspace-mcp did not respond to initialize"),
     ]);
+    log.info("authorize", "initialize OK", {
+      serverInfo: initRes && initRes.serverInfo,
+    });
     rpc.notify("notifications/initialized", {});
 
+    log.info("authorize", "Calling start_google_auth tool", { email });
     const result = await Promise.race([
       rpc.request("tools/call", {
         name: "start_google_auth",
@@ -187,12 +219,27 @@ async function authorizeAccount(email) {
       rejectAfter(15000, "start_google_auth did not respond"),
     ]);
     authUrl = extractAuthUrl(result);
+    log.info("authorize", "start_google_auth returned", {
+      authUrlFound: !!authUrl,
+      // The text includes guidance + the URL (no secret); safe to log.
+      responseText: (result.content || [])
+        .map((c) => (typeof c.text === "string" ? c.text : ""))
+        .join(" ")
+        .slice(0, 600),
+    });
     // The server opens the system browser itself. If that failed (headless quirk),
     // fall back to opening the parsed URL ourselves.
     if (authUrl && /Open this URL|did not appear/i.test(JSON.stringify(result))) {
-      shell.openExternal(authUrl).catch(() => {});
+      log.info("authorize", "Server did not auto-open browser; opening manually");
+      shell.openExternal(authUrl).catch((e) =>
+        log.warn("authorize", "shell.openExternal failed", { message: String(e) })
+      );
     }
   } catch (e) {
+    log.error("authorize", "Sign-in initiation failed", {
+      message: e.message,
+      stderrTail: stderr.slice(-1500),
+    });
     await stopAll();
     return {
       ok: false,
@@ -202,17 +249,36 @@ async function authorizeAccount(email) {
   }
 
   // Poll for a fresh credential file, then stop the transient server.
+  log.info("authorize", "Waiting for consent + credential file", {
+    timeoutMs: SIGNIN_TIMEOUT_MS,
+  });
   const deadline = Date.now() + SIGNIN_TIMEOUT_MS;
+  let ticks = 0;
   while (Date.now() < deadline) {
-    if (proc.killed || proc.exitCode != null) break;
+    if (proc.killed || proc.exitCode != null) {
+      log.warn("authorize", "Server process ended before credential detected");
+      break;
+    }
     await sleep(POLL_INTERVAL_MS);
     const now = credentialSignature(email);
     if (now && now !== before) {
+      log.info("authorize", "Fresh credential file detected", {
+        email,
+        signature: now,
+        status: readStatusForLog(email),
+      });
       await stopAll();
       return { ok: true, connected: true, authUrl };
     }
+    if (++ticks % 10 === 0) {
+      log.info("authorize", "still waiting…", { secondsElapsed: ticks });
+    }
   }
 
+  log.warn("authorize", "Timed out / pending — no fresh credential observed", {
+    email,
+    stderrTail: stderr.slice(-800),
+  });
   await stopAll();
   return {
     ok: true,
@@ -221,6 +287,15 @@ async function authorizeAccount(email) {
     note:
       "Finish the sign-in in your browser if you haven't. Then click Re-auth/refresh to update status.",
   };
+}
+
+// Read account status for log context without throwing.
+function readStatusForLog(email) {
+  try {
+    return require("./accounts").readTokenStatus(email);
+  } catch {
+    return null;
+  }
 }
 
 // A cheap fingerprint of the credential file (mtime+size), or null if absent.

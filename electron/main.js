@@ -9,6 +9,7 @@ const credentials = require("./services/credentials");
 const accounts = require("./services/accounts");
 const serverManager = require("./services/serverManager");
 const claudeConfig = require("./services/claudeConfig");
+const log = require("./services/logger");
 
 const isDev = !app.isPackaged;
 
@@ -41,36 +42,74 @@ function createWindow() {
   });
 }
 
+// Wrap ipcMain.handle so every call is logged (args redacted) with its outcome
+// and timing. Errors are logged and re-thrown so the renderer still sees them.
+function handle(channel, fn) {
+  ipcMain.handle(channel, async (_e, payload) => {
+    const t0 = Date.now();
+    log.info("ipc", `→ ${channel}`, payload);
+    try {
+      const result = await fn(payload, _e);
+      log.info("ipc", `← ${channel} ok`, { ms: Date.now() - t0, result });
+      return result;
+    } catch (err) {
+      log.error("ipc", `✗ ${channel} threw`, {
+        ms: Date.now() - t0,
+        message: String(err && err.message ? err.message : err),
+        stack: err && err.stack,
+      });
+      throw err;
+    }
+  });
+}
+
 // --- IPC: credentials -------------------------------------------------------
-ipcMain.handle("creds:get", async () => credentials.getClientConfig());
-ipcMain.handle("creds:save", async (_e, { clientId, clientSecret }) =>
+handle("creds:get", () => credentials.getClientConfig());
+handle("creds:save", ({ clientId, clientSecret }) =>
   credentials.saveClientConfig(clientId, clientSecret)
 );
 
 // --- IPC: prerequisites -----------------------------------------------------
-ipcMain.handle("prereq:check", async () => serverManager.checkPrerequisites());
+handle("prereq:check", () => serverManager.checkPrerequisites());
 
 // --- IPC: accounts ----------------------------------------------------------
-ipcMain.handle("accounts:list", async () => accounts.listAccounts());
-ipcMain.handle("accounts:add", async (_e, { email }) => accounts.addAccount(email));
-ipcMain.handle("accounts:remove", async (_e, { email }) => accounts.removeAccount(email));
-ipcMain.handle("accounts:authorize", async (_e, { email }) =>
-  serverManager.authorizeAccount(email)
-);
+handle("accounts:list", () => accounts.listAccounts());
+handle("accounts:add", ({ email }) => accounts.addAccount(email));
+handle("accounts:remove", ({ email }) => accounts.removeAccount(email));
+handle("accounts:authorize", ({ email }) => serverManager.authorizeAccount(email));
 
 // --- IPC: claude config -----------------------------------------------------
-ipcMain.handle("claude:status", async () => claudeConfig.getStatus());
-ipcMain.handle("claude:write", async () => claudeConfig.writeServerEntry());
+handle("claude:status", () => claudeConfig.getStatus());
+handle("claude:write", () => claudeConfig.writeServerEntry());
 
 // --- IPC: diagnostics -------------------------------------------------------
-ipcMain.handle("server:test", async () => serverManager.testServer());
+handle("server:test", () => serverManager.testServer());
+handle("debug:get", () => ({
+  logPath: log.getLogPath(),
+  versions: process.versions,
+  platform: process.platform,
+}));
+handle("debug:revealLog", () => {
+  const p = log.getLogPath();
+  if (p) shell.showItemInFolder(p);
+  return { ok: !!p, path: p };
+});
 
 app.whenReady().then(() => {
+  log.init();
+  log.info("app", "app ready", { isDev, version: app.getVersion() });
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+process.on("uncaughtException", (err) =>
+  log.error("process", "uncaughtException", { message: String(err), stack: err && err.stack })
+);
+process.on("unhandledRejection", (reason) =>
+  log.error("process", "unhandledRejection", { reason: String(reason) })
+);
 
 app.on("window-all-closed", () => {
   // Ensure any transient sign-in server is stopped.

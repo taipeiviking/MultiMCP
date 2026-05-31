@@ -8,6 +8,7 @@ const path = require("path");
 const os = require("os");
 const { execFile } = require("child_process");
 const { app } = require("electron");
+const log = require("./logger");
 
 const SERVICE = "google-workspace-manager";
 const SECRET_KEY = "oauth_client_secret";
@@ -64,8 +65,15 @@ async function saveClientConfig(clientId, clientSecret) {
     if (locked) {
       s.aclLocked = true;
     }
+    log.info("credentials", "ACL lockdown attempt", { dir, locked });
   }
   writeSettings(s);
+  log.info("credentials", "Saved client config", {
+    clientIdTail: s.clientId ? s.clientId.slice(-28) : null,
+    secretUpdated: !!clientSecret,
+    credentialsDir: dir,
+    aclLocked: !!s.aclLocked,
+  });
   return { ok: true };
 }
 

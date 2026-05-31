@@ -8,11 +8,16 @@ export default function Dashboard({ creds, onChangeCreds }) {
   const [claude, setClaude] = useState(null);
   const [newEmail, setNewEmail] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dbg, setDbg] = useState(null);
 
   const refresh = useCallback(async () => {
     const [a, c] = await Promise.all([api.accounts.list(), api.claude.status()]);
     setAccounts(a);
     setClaude(c);
+  }, []);
+
+  useEffect(() => {
+    api.debug?.get().then(setDbg).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -70,6 +75,17 @@ export default function Dashboard({ creds, onChangeCreds }) {
         Heads-up: while the Google app is in “Testing”, tokens expire about every 7 days —
         just hit Re-auth when an account goes stale.
       </p>
+
+      {dbg?.logPath && (
+        <div className="diag muted small">
+          <span>
+            Debug log: <code>{dbg.logPath}</code>
+          </span>
+          <button className="btn btn--small" onClick={() => api.debug.revealLog()}>
+            Reveal log
+          </button>
+        </div>
+      )}
     </div>
   );
 }
