@@ -15,3 +15,6 @@ claude_desktop_config.json.bak-*
 
 # redundant scaffold archive (superseded by extracted tree)
 google-workspace-manager.zip
+
+# self-signed code-signing material (never commit private key)
+build/selfsign/

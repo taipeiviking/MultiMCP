@@ -14,6 +14,7 @@ the Claude Desktop config.
 ---
 
 ## Contents
+- [Installing (from a GitHub Release)](#installing)
 - [How it works (the big picture)](#how-it-works)
 - [First-time setup](#first-time-setup)
 - [Prerequisites](#prerequisites)
@@ -47,6 +48,20 @@ primed here. That's the whole trick.
 > sign-ins, (b) write the Claude config, and (c) **warn you before tokens expire**.
 
 ---
+
+<a id="installing"></a>
+## Installing (from a GitHub Release)
+
+1. Go to **https://github.com/taipeiviking/MultiMCP/releases/latest**
+2. Download **`Google Workspace Manager Setup 0.1.0.exe`**.
+3. Run it. Windows **SmartScreen** will likely show *"Windows protected your PC"*
+   because the app is signed with a self-signed certificate (not a paid CA cert):
+   click **More info → Run anyway**. This is expected and safe — the installer is
+   open-source; you can build it yourself from the repo if you prefer.
+4. The installer creates Start-menu + desktop shortcuts (per-user; no admin needed).
+
+> Prefer not to trust a binary? Clone the repo and run `npm install && npm run dist`
+> to build your own installer from source.
 
 <a id="first-time-setup"></a>
 ## First-time setup
