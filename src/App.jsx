@@ -35,14 +35,15 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand__dot" />
-          <div className="brand__text">
-            <span className="brand__name">MultiMCP — Google Workspace Manager</span>
-            <span className="brand__tagline">
-              Connect multiple Google Workspace accounts to Claude Desktop — sign in
-              once, and Claude gets Gmail, Drive &amp; Calendar access per account.
-            </span>
-          </div>
+          <span className="brand__name">MultiMCP — Google Workspace Manager</span>
         </div>
+        <p className="brand__desc">
+          Connect multiple Google Workspace accounts to Claude Desktop — sign in once,
+          and Claude gets Gmail, Drive &amp; Calendar access per account. This app runs
+          the diagnostics &amp; authentication backend (<code>workspace-mcp</code>)
+          through <code>uvx</code>; Claude Desktop launches the same backend each
+          session, so your accounts stay connected without re-signing in every time.
+        </p>
       </header>
 
       <main className="content">
@@ -64,30 +65,12 @@ export default function App() {
 function StatusBar({ prereqs }) {
   const uvxOk = !!prereqs?.uvx?.ok;
   const uvxPath = prereqs?.uvx?.path;
-  const pyOk = !!prereqs?.python?.ok;
-  const installHint = prereqs?.installHint;
-
   return (
     <footer className={`statusbar ${uvxOk ? "statusbar--ok" : "statusbar--warn"}`}>
       <span className={`statusbar__dot ${uvxOk ? "is-ok" : "is-warn"}`} />
-      {uvxOk ? (
-        <span className="statusbar__text">
-          <strong>Engine ready.</strong> This app runs the diagnostics/auth backend
-          (<code>workspace-mcp</code>) through <code>uvx</code>
-          {uvxPath ? (
-            <> — found at <code>{uvxPath}</code></>
-          ) : null}
-          . Claude Desktop launches the same backend per session, so your accounts
-          stay connected{pyOk ? " (Python detected)" : ""}.
-        </span>
-      ) : (
-        <span className="statusbar__text">
-          <strong>Engine missing.</strong> <code>uvx</code> (from{" "}
-          <code>uv</code>) is required to sign in accounts and run the backend.
-          Install it, then reopen this app:{" "}
-          <code className="statusbar__cmd">{installHint || "irm https://astral.sh/uv/install.ps1 | iex"}</code>
-        </span>
-      )}
+      <span className="statusbar__text" title={uvxPath || ""}>
+        {uvxOk ? "Engine ready" : "Engine missing — install uv"}
+      </span>
     </footer>
   );
 }
