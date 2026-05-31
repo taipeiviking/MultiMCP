@@ -3,6 +3,7 @@ dist/
 out/
 build/
 *.log
+dist-build.log
 .DS_Store
 .claude/settings.local.json
 .env
