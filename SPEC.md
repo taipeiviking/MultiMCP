@@ -1,8 +1,10 @@
 # Google Workspace Manager — Build Spec
 
 > Authoritative spec for implementation. Plan in Claude Chat, build/run in Claude Code.
-> Status: INTEGRATION COMPLETE. All `TODO(claude-code)` markers resolved against the
-> live workspace-mcp 1.21.1. Remaining: live end-to-end run + Windows packaging (§11).
+> Status: SHIPPING. Integration complete and verified live end-to-end (Gmail/Drive/
+> Calendar through Claude Desktop). Runs as a background tray app with expiry
+> notifications and autostart; packages to a Windows NSIS installer. §8 documents the
+> UI as built. See HELP.md for the end-user guide.
 
 ## 1. Purpose
 
@@ -161,17 +163,43 @@ Claude Desktop launches, so the primed token is immediately usable.
    (keep the existing `https://claude.ai/api/mcp/auth_callback` too — harmless).
 3. Consent screen Audience = External, all 5 emails added as Test users.
 
-## 8. UI (React)
+## 8. UI (React) — AS BUILT
 
-Dark "control room" aesthetic, amber accent, monospace for status/IDs. Screens:
-- **Dashboard**: list of account cards (email, connected/expired chip, expiry
-  countdown, Re-auth + Remove buttons), a global "Add account" button, and a
-  Claude Desktop config status strip (in sync / needs write).
-- **Credentials setup**: first-run pane for Client ID + Secret + a "Save securely"
-  action; shows where the secret is stored (Windows Credential Manager).
-- **Diagnostics**: prerequisite checks (uvx, python), "Test server" with live log.
+Dark "control room" aesthetic, amber accent, monospace for status/IDs.
 
-`TODO(claude-code)`: flesh out components, empty/error/loading states, toasts.
+- **Header**: full-width intro paragraph describing what the app does (the product
+  name lives in the OS title bar: "MultiMCP — Google Workspace Manager"). No native
+  menu bar — a single **? Help** button (on the Accounts row) opens `HELP.md`.
+- **Dashboard**: add-account row; account cards (email, status dot,
+  connected/re-auth countdown, **Re-auth** + **Remove**); a Claude Desktop config
+  strip ("in sync" shows a green **✓ Done**, otherwise **Write config**); a
+  ~7-day-expiry heads-up note; a **Start with Windows** checkbox (default on); a
+  Debug-log row with a **View log** button (in-app modal viewer).
+- **Credentials**: app-wide editor (toggle at the bottom, "Edit/Hide credentials")
+  for the **one** OAuth Client ID + Secret shared by all accounts — explicitly
+  labelled so it isn't mistaken for per-account. Secret stored in Credential
+  Manager.
+- **Bottom status bar**: green/amber dot + "Engine ready" / "Engine missing —
+  install uv" (uvx path in tooltip).
+- **Window**: size/position persisted in settings.json (DPI-independent).
+
+### Tray / background behavior
+- System tray icon; left-click opens the dashboard. Context menu: Open Dashboard,
+  per-account status, Re-check now, **Start with Windows** (checkbox), Quit.
+- **Close-to-tray**: closing the window hides it; the app keeps running. Only Quit
+  exits. Single-instance lock prevents double-running.
+- **Autostart**: persisted in settings.json (default on); the OS login item is
+  registered only in a packaged build (`--hidden`, launches to tray). Reconciled at
+  launch.
+- **Expiry watcher**: checks ~8s after launch and every 6h; native notification when
+  an account is expired or within 48h of its re-auth deadline; clicking opens the
+  dashboard.
+
+### Diagnostics
+- Prereq detection (uvx, python) surfaced in the bottom status bar.
+- Secret-redacted file logger at `%APPDATA%\google-workspace-manager\logs\app.log`;
+  **View log** reads the tail (last 256 KB) into an in-app modal (external editors
+  are unreliable on Win11 — the Store Notepad fails to open %APPDATA% paths).
 
 ## 9. Security requirements
 
