@@ -43,8 +43,26 @@ body {
 }
 .brand__text { display: flex; flex-direction: column; gap: 3px; }
 .brand__name { font-weight: 600; letter-spacing: 0.2px; font-size: 15px; }
-.brand__tagline { font-size: 12.5px; color: var(--muted); max-width: 64ch; line-height: 1.45; }
-.chip { white-space: nowrap; margin-top: 3px; }
+.brand__tagline { font-size: 12.5px; color: var(--muted); max-width: 72ch; line-height: 1.45; }
+
+/* Bottom status bar (prerequisite / engine status) */
+.statusbar {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 22px;
+  border-top: 1px solid var(--line);
+  background: rgba(13, 17, 23, 0.6);
+  backdrop-filter: blur(6px);
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.statusbar__dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex: none; }
+.statusbar__dot.is-ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.statusbar__dot.is-warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.statusbar__text { max-width: 110ch; }
+.statusbar__text strong { color: var(--text); font-weight: 600; }
+.statusbar--warn .statusbar__text strong { color: var(--warn); }
+.statusbar__cmd { user-select: all; }
 
 .content { flex: 1; padding: 28px; max-width: 860px; margin: 0 auto; width: 100%; }
 

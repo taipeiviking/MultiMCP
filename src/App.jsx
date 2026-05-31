@@ -43,7 +43,6 @@ export default function App() {
             </span>
           </div>
         </div>
-        <PrereqChip prereqs={prereqs} />
       </header>
 
       <main className="content">
@@ -56,15 +55,39 @@ export default function App() {
           <CredentialsSetup creds={creds} onSaved={refresh} editing />
         )}
       </main>
+
+      <StatusBar prereqs={prereqs} />
     </div>
   );
 }
 
-function PrereqChip({ prereqs }) {
-  const ok = prereqs?.uvx?.ok;
+function StatusBar({ prereqs }) {
+  const uvxOk = !!prereqs?.uvx?.ok;
+  const uvxPath = prereqs?.uvx?.path;
+  const pyOk = !!prereqs?.python?.ok;
+  const installHint = prereqs?.installHint;
+
   return (
-    <span className={`chip ${ok ? "chip--ok" : "chip--warn"}`} title={prereqs?.uvx?.path || ""}>
-      uvx {ok ? "ready" : "missing"}
-    </span>
+    <footer className={`statusbar ${uvxOk ? "statusbar--ok" : "statusbar--warn"}`}>
+      <span className={`statusbar__dot ${uvxOk ? "is-ok" : "is-warn"}`} />
+      {uvxOk ? (
+        <span className="statusbar__text">
+          <strong>Engine ready.</strong> This app runs the diagnostics/auth backend
+          (<code>workspace-mcp</code>) through <code>uvx</code>
+          {uvxPath ? (
+            <> — found at <code>{uvxPath}</code></>
+          ) : null}
+          . Claude Desktop launches the same backend per session, so your accounts
+          stay connected{pyOk ? " (Python detected)" : ""}.
+        </span>
+      ) : (
+        <span className="statusbar__text">
+          <strong>Engine missing.</strong> <code>uvx</code> (from{" "}
+          <code>uv</code>) is required to sign in accounts and run the backend.
+          Install it, then reopen this app:{" "}
+          <code className="statusbar__cmd">{installHint || "irm https://astral.sh/uv/install.ps1 | iex"}</code>
+        </span>
+      )}
+    </footer>
   );
 }
