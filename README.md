@@ -6,11 +6,28 @@ files. It wraps the proven [`workspace-mcp`](https://github.com/taylorwilsdon/go
 server — this app handles credentials, per-account sign-in, status, and writing the
 Claude Desktop config.
 
-> **Status: complete and shipping.** Integration is implemented and verified live
-> end-to-end against `workspace-mcp` (Gmail/Drive/Calendar read for a real account
-> through Claude Desktop), runs as a background tray app, and packages to a Windows
-> NSIS installer. Read `SPEC.md` for the authoritative design and `HELP.md` for the
-> end-user guide.
+## ⬇️ Download & install
+
+**[➤ Download the latest Windows installer](https://github.com/taipeiviking/MultiMCP/releases/latest)**
+— then run **`Google Workspace Manager Setup 0.1.0.exe`**.
+
+1. On the Releases page, under **Assets**, click
+   **`Google Workspace Manager Setup 0.1.0.exe`** to download.
+2. Run it. If Windows **SmartScreen** shows a one-time *"Windows protected your PC"*
+   notice (normal for any app downloaded from the web without a paid code-signing
+   certificate), click **More info → Run anyway**. Installs per-user; no admin needed.
+3. Make sure [`uv`/`uvx`](https://github.com/astral-sh/uv) is installed (see
+   Prerequisites), then launch the app, enter your Google OAuth Client ID + Secret
+   once, add each account and **Sign in**, click **Write config**, and restart
+   Claude Desktop.
+
+Full step-by-step guide: **[HELP.md](HELP.md)**.
+
+> **Status: complete and shipping.** Verified live end-to-end against `workspace-mcp`
+> (Gmail/Drive/Calendar read for a real account through Claude Desktop), runs as a
+> background tray app, and ships as a Windows NSIS installer via
+> [GitHub Releases](https://github.com/taipeiviking/MultiMCP/releases). Read
+> `SPEC.md` for the authoritative design.
 
 ## What it does
 - Stores your **one** Google OAuth Client ID/Secret securely (Windows Credential
