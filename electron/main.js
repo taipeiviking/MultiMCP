@@ -110,12 +110,36 @@ function createMenu() {
 
 // --- Window -----------------------------------------------------------------
 
+const DEFAULT_BOUNDS = { width: 1100, height: 760 };
+const MIN_WIDTH = 880;
+const MIN_HEIGHT = 600;
+
+// Restore the last-used window size/position (persisted in settings.json), so the
+// user sizes the window once and it sticks. Sizes are in DIPs (DPI-independent),
+// which is why we persist them rather than hard-code pixels.
+function savedBounds() {
+  const b = credentials.readSettings().windowBounds;
+  if (!b || typeof b.width !== "number" || typeof b.height !== "number") return null;
+  return b;
+}
+
+function persistBounds() {
+  if (!win || win.isDestroyed() || win.isMinimized() || win.isMaximized()) return;
+  try {
+    const b = win.getBounds();
+    credentials.patchSettings({ windowBounds: b });
+  } catch {}
+}
+
 function createWindow({ show } = { show: true }) {
+  const b = savedBounds() || DEFAULT_BOUNDS;
   win = new BrowserWindow({
-    width: 1300,
-    height: 892,
-    minWidth: 980,
-    minHeight: 680,
+    width: b.width,
+    height: b.height,
+    x: typeof b.x === "number" ? b.x : undefined,
+    y: typeof b.y === "number" ? b.y : undefined,
+    minWidth: MIN_WIDTH,
+    minHeight: MIN_HEIGHT,
     show: false, // shown on ready-to-show (avoids white flash) unless startHidden
     backgroundColor: "#0e1116",
     title: "Google Workspace Manager",
@@ -138,8 +162,13 @@ function createWindow({ show } = { show: true }) {
     if (show) win.show();
   });
 
+  // Remember size/position whenever the user resizes or moves the window.
+  win.on("resize", persistBounds);
+  win.on("move", persistBounds);
+
   // Close = hide to tray (unless the user chose Quit).
   win.on("close", (e) => {
+    persistBounds();
     if (!isQuitting) {
       e.preventDefault();
       win.hide();
