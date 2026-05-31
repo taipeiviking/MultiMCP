@@ -31,8 +31,20 @@
       "electron/**/*",
       "dist/**/*"
     ],
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/keytar/**"
+    ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "electron/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }
