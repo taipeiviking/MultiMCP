@@ -46,7 +46,7 @@ export default function App() {
         {needsSetup ? (
           <CredentialsSetup creds={creds} onSaved={refresh} />
         ) : (
-          <Dashboard creds={creds} prereqs={prereqs} onChangeCreds={() => setCreds({ ...creds, _edit: true })} />
+          <Dashboard creds={creds} prereqs={prereqs} onChangeCreds={() => setCreds({ ...creds, _edit: !creds._edit })} />
         )}
         {creds?._edit && (
           <CredentialsSetup creds={creds} onSaved={refresh} editing />

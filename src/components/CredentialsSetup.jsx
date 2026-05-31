@@ -26,11 +26,16 @@ export default function CredentialsSetup({ creds, onSaved, editing }) {
 
   return (
     <section className="card setup">
-      <h1 className="setup__title">{editing ? "Update credentials" : "Connect your Google OAuth client"}</h1>
+      <h1 className="setup__title">
+        {editing ? "Google OAuth client (shared by all accounts)" : "Connect your Google OAuth client"}
+      </h1>
       <p className="muted">
-        Paste the OAuth <strong>Client ID</strong> and <strong>Client Secret</strong> from your
-        Google Cloud project. The secret is stored in <strong>Windows Credential Manager</strong>,
-        never in plaintext.
+        This is your project's <strong>one</strong> OAuth client — the same{" "}
+        <strong>Client ID</strong> and <strong>Client Secret</strong> are used to sign in{" "}
+        <strong>every</strong> account you add (it is <em>not</em> per-account). Paste them
+        from your Google Cloud project; the secret is stored in{" "}
+        <strong>Windows Credential Manager</strong>, never in plaintext. Each account's own
+        token is created separately when you click <strong>Sign in</strong> / <strong>Re-auth</strong>.
       </p>
 
       <label className="field">

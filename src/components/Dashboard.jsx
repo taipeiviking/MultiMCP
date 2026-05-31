@@ -49,9 +49,6 @@ export default function Dashboard({ creds, onChangeCreds }) {
     <div className="dash">
       <div className="dash__head">
         <h1>Accounts</h1>
-        <button className="btn btn--ghost" onClick={onChangeCreds}>
-          Credentials
-        </button>
       </div>
 
       <div className="add-row">
@@ -109,6 +106,15 @@ export default function Dashboard({ creds, onChangeCreds }) {
           </button>
         </div>
       )}
+
+      <div className="diag muted small">
+        <span>
+          Google OAuth client — one Client ID &amp; Secret shared by all accounts.
+        </span>
+        <button className="btn btn--small" onClick={onChangeCreds}>
+          {creds?._edit ? "Hide credentials" : "Edit credentials"}
+        </button>
+      </div>
     </div>
   );
 }
