@@ -10,6 +10,13 @@ export default function Dashboard({ creds, onChangeCreds }) {
   const [busy, setBusy] = useState(false);
   const [dbg, setDbg] = useState(null);
   const [autostart, setAutostart] = useState(null); // {enabled, isDev}
+  const [copied, setCopied] = useState(false);
+
+  async function copyLogPath() {
+    await api.debug?.copyLogPath();
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
 
   const refresh = useCallback(async () => {
     const [a, c] = await Promise.all([api.accounts.list(), api.claude.status()]);
@@ -108,9 +115,17 @@ export default function Dashboard({ creds, onChangeCreds }) {
           <span>
             Debug log: <code>{dbg.logPath}</code>
           </span>
-          <button className="btn btn--small" onClick={() => api.debug.revealLog()}>
-            Reveal log
-          </button>
+          <div className="diag__actions">
+            <button className="btn btn--small" onClick={() => api.debug.openLog()}>
+              Open log file
+            </button>
+            <button className="btn btn--small" onClick={() => api.debug.revealLog()}>
+              Reveal folder
+            </button>
+            <button className="btn btn--small" onClick={copyLogPath}>
+              {copied ? "✓ Copied" : "Copy path"}
+            </button>
+          </div>
         </div>
       )}
 

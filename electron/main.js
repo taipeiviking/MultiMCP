@@ -19,6 +19,7 @@ const {
   Menu,
   nativeImage,
   Notification,
+  clipboard,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
