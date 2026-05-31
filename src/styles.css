@@ -34,8 +34,10 @@ body {
   background: rgba(13, 17, 23, 0.6);
   backdrop-filter: blur(6px);
 }
+.topbar__row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.help-btn { flex: none; }
 .brand__desc {
-  margin: 0; width: 100%;
+  margin: 0;
   font-size: 12.5px; color: var(--muted); line-height: 1.5;
 }
 .brand__desc code { font-size: 11.5px; }

@@ -491,4 +491,10 @@ function registerIpc() {
     enabled: setAutostartEnabled(!!enabled),
     isDev,
   }));
+
+  // help
+  handle("help:open", () => {
+    shell.openExternal(HELP_URL);
+    return { ok: true, url: HELP_URL };
+  });
 }
