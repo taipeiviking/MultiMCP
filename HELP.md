@@ -54,14 +54,17 @@ primed here. That's the whole trick.
 
 1. Go to **https://github.com/taipeiviking/MultiMCP/releases/latest**
 2. Download **`Google Workspace Manager Setup 0.1.0.exe`**.
-3. Run it. Windows **SmartScreen** will likely show *"Windows protected your PC"*
-   because the app is signed with a self-signed certificate (not a paid CA cert):
-   click **More info → Run anyway**. This is expected and safe — the installer is
-   open-source; you can build it yourself from the repo if you prefer.
-4. The installer creates Start-menu + desktop shortcuts (per-user; no admin needed).
+3. Run it. Because the file was **downloaded from the internet**, Windows
+   **SmartScreen** may show a one-time *"Windows protected your PC"* notice (this
+   happens for any app without a paid code-signing certificate, signed or not).
+   Click **More info → Run anyway**. It installs per-user; no admin needed.
+4. The installer creates Start-menu + desktop shortcuts.
 
-> Prefer not to trust a binary? Clone the repo and run `npm install && npm run dist`
-> to build your own installer from source.
+> Why the notice? Windows flags files downloaded from the web ("Mark of the Web").
+> A paid CA code-signing certificate would remove the prompt, but isn't required —
+> the app is open-source, so you can also clone the repo and run
+> `npm install && npm run dist` to build the identical installer yourself (a
+> locally-built installer carries no web mark and shows no notice).
 
 <a id="first-time-setup"></a>
 ## First-time setup
