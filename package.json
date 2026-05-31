@@ -1,0 +1,38 @@
+{
+  "name": "google-workspace-manager",
+  "version": "0.1.0",
+  "description": "Local control panel to connect multiple Google Workspace accounts to Claude Desktop via workspace-mcp.",
+  "author": "",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "build": "vite build",
+    "dist": "npm run build && electron-builder --win nsis",
+    "rebuild": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.0.1",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.0",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.local.googleworkspacemanager",
+    "productName": "Google Workspace Manager",
+    "files": [
+      "electron/**/*",
+      "dist/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

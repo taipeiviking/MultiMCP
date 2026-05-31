@@ -1,0 +1,16 @@
+node_modules/
+dist/
+out/
+build/
+*.log
+.DS_Store
+.claude/settings.local.json
+.env
+.env.*
+# never commit user data or backups
+settings.json
+accounts.json
+claude_desktop_config.json.bak-*
+
+# redundant scaffold archive (superseded by extracted tree)
+google-workspace-manager.zip
