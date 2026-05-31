@@ -125,8 +125,12 @@ function ClaudeStrip({ claude, busy, onWrite }) {
   return (
     <div className={`claude-strip claude-strip--${state}`}>
       <span>{label}</span>
-      <button className="btn btn--small" onClick={onWrite} disabled={busy || state === "ok"}>
-        {busy ? "Writing…" : "Write config"}
+      <button
+        className={`btn btn--small ${state === "ok" ? "btn--done" : ""}`}
+        onClick={onWrite}
+        disabled={busy || state === "ok"}
+      >
+        {busy ? "Writing…" : state === "ok" ? "✓ Done" : "Write config"}
       </button>
     </div>
   );

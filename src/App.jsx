@@ -35,7 +35,13 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand__dot" />
-          <span className="brand__name">Workspace Manager</span>
+          <div className="brand__text">
+            <span className="brand__name">MultiMCP — Google Workspace Manager</span>
+            <span className="brand__tagline">
+              Connect multiple Google Workspace accounts to Claude Desktop — sign in
+              once, and Claude gets Gmail, Drive &amp; Calendar access per account.
+            </span>
+          </div>
         </div>
         <PrereqChip prereqs={prereqs} />
       </header>
