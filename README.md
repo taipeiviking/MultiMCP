@@ -57,13 +57,11 @@ Full step-by-step guide: **[HELP.md](HELP.md)**.
 - Node.js 18+ is only needed to **build** the app, not to run the installed one.
 
 ## Install (end users)
-Run the installer from `dist/`:
-```
-Google Workspace Manager Setup 0.1.0.exe
-```
-It creates Start-menu + desktop shortcuts. Launch it, enter your OAuth Client
-ID/Secret once, add each account and Sign in, click **Write config**, then restart
-Claude Desktop. Tick **Start with Windows** to keep it in the tray on login.
+Grab it from the **[latest GitHub Release](https://github.com/taipeiviking/MultiMCP/releases/latest)**
+(direct link + SmartScreen note in [Download & install](#️-download--install) above).
+The installer creates Start-menu + desktop shortcuts. Launch it, enter your OAuth
+Client ID/Secret once, add each account and Sign in, click **Write config**, then
+restart Claude Desktop. Tick **Start with Windows** to keep it in the tray on login.
 
 ## Develop
 ```powershell
