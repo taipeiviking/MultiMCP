@@ -6,8 +6,10 @@ files. It wraps the proven [`workspace-mcp`](https://github.com/taylorwilsdon/go
 server — this app handles credentials, per-account sign-in, status, and writing the
 Claude Desktop config.
 
-> This is a **scaffold**. Integration points marked `TODO(claude-code)` are stubbed
-> for completion in Claude Code. Read `SPEC.md` first — it's the authoritative design.
+> Integration is complete: the per-account sign-in (stdio `start_google_auth`) and
+> credential-status reader are implemented and unit-tested against the live
+> `workspace-mcp` 1.21.1. Remaining work is the live end-to-end run and packaging.
+> Read `SPEC.md` first — it's the authoritative design.
 
 ## What it does
 - Stores your Google OAuth Client ID/Secret securely (Windows Credential Manager).
@@ -53,8 +55,12 @@ src/
   App.jsx, components/*      React UI (dashboard, setup, account cards)
 ```
 
-## Where to start in Claude Code
-Follow `SPEC.md` §11 build order. The first thing to finalize is the per-account
-OAuth sign-in in `serverManager.authorizeAccount()` and the credential-file reader
-in `accounts.readTokenStatus()` — both have `TODO(claude-code)` notes pinning down
-what to confirm against the live `workspace-mcp`.
+## Status / where things stand
+Integration is implemented per `SPEC.md` §11 (steps 1–6 done):
+- `serverManager.authorizeAccount()` — per-account sign-in via a transient stdio
+  `workspace-mcp` and the `start_google_auth` tool (system browser, `login_hint`).
+- `accounts.readTokenStatus()` — reads `<email>.json` from the shared credentials
+  dir and parses the naive-UTC `expiry` for the countdown.
+
+Remaining (§11 step 7): the live end-to-end run (requires the Google Cloud items
+in `SPEC.md` §7) and `npm run dist` for the installer.

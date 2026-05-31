@@ -37,17 +37,29 @@ async function buildEntry() {
   const clientSecret = await credentials.getClientSecret();
   const uvxPath = await serverManager.resolveUvxPath(); // absolute path (Windows PATH safety)
 
+  // SECURITY DECISION (SPEC §9): the stdio server Claude Desktop launches needs
+  // GOOGLE_OAUTH_CLIENT_SECRET to refresh tokens for a confidential ("Web")
+  // OAuth client. There is no way for that Python process to read Windows
+  // Credential Manager, so for a Web client the secret must be injected into
+  // this config file (readable by the current user). Setting
+  // `injectSecretIntoConfig: false` omits it, but token refresh will then fail
+  // for a Web client. Default: inject (and document the exposure).
+  const settings = credentials.readSettings();
+  const injectSecret = settings.injectSecretIntoConfig !== false;
+
+  const env = {
+    GOOGLE_OAUTH_CLIENT_ID: clientId,
+    GOOGLE_MCP_CREDENTIALS_DIR: credentialsDir,
+    OAUTHLIB_INSECURE_TRANSPORT: "1",
+  };
+  if (injectSecret) {
+    env.GOOGLE_OAUTH_CLIENT_SECRET = clientSecret || "";
+  }
+
   return {
     command: uvxPath || "uvx",
     args: ["workspace-mcp", "--tools", "gmail", "drive", "calendar"],
-    env: {
-      GOOGLE_OAUTH_CLIENT_ID: clientId,
-      // SECURITY DECISION (see SPEC §9): secret is injected here so the stdio
-      // server Claude launches can authenticate. It then lives in this file.
-      GOOGLE_OAUTH_CLIENT_SECRET: clientSecret || "",
-      GOOGLE_MCP_CREDENTIALS_DIR: credentialsDir,
-      OAUTHLIB_INSECURE_TRANSPORT: "1",
-    },
+    env,
   };
 }
 

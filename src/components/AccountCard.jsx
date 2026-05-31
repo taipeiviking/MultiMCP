@@ -15,14 +15,27 @@ function expiryLabel(account) {
 
 export default function AccountCard({ account, onChanged }) {
   const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // { kind: "info"|"error", text, url? }
   const status = account.expired ? "expired" : account.connected ? "ok" : "off";
 
   async function reauth() {
     setBusy(true);
-    await api.accounts.authorize(account.email);
-    // Sign-in continues in the system browser; user refreshes after.
-    setBusy(false);
-    onChanged();
+    setMsg(null);
+    try {
+      const res = await api.accounts.authorize(account.email);
+      if (res.ok && res.connected) {
+        setMsg(null);
+      } else if (res.ok && res.pending) {
+        setMsg({ kind: "info", text: res.note || "Waiting for sign-in…", url: res.authUrl });
+      } else if (!res.ok) {
+        setMsg({ kind: "error", text: res.error || "Sign-in failed.", url: res.authUrl });
+      }
+    } catch (e) {
+      setMsg({ kind: "error", text: String(e?.message || e) });
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
   }
 
   async function remove() {
@@ -37,13 +50,26 @@ export default function AccountCard({ account, onChanged }) {
         <div>
           <div className="account-card__email">{account.email}</div>
           <div className="account-card__meta muted">{expiryLabel(account)}</div>
+          {msg && (
+            <div className={`account-card__msg ${msg.kind === "error" ? "error" : "muted small"}`}>
+              {msg.text}
+              {msg.url && (
+                <>
+                  {" "}
+                  <a href={msg.url} target="_blank" rel="noreferrer">
+                    Open sign-in page
+                  </a>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <div className="account-card__actions">
         <button className="btn btn--small" onClick={reauth} disabled={busy}>
-          {busy ? "Opening…" : account.connected ? "Re-auth" : "Sign in"}
+          {busy ? "Waiting for browser…" : account.connected ? "Re-auth" : "Sign in"}
         </button>
-        <button className="btn btn--small btn--danger-ghost" onClick={remove}>
+        <button className="btn btn--small btn--danger-ghost" onClick={remove} disabled={busy}>
           Remove
         </button>
       </div>

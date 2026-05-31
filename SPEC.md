@@ -1,7 +1,8 @@
 # Google Workspace Manager — Build Spec
 
 > Authoritative spec for implementation. Plan in Claude Chat, build/run in Claude Code.
-> Status: SCAFFOLD. Core integration logic is stubbed with `TODO(claude-code)` markers.
+> Status: INTEGRATION COMPLETE. All `TODO(claude-code)` markers resolved against the
+> live workspace-mcp 1.21.1. Remaining: live end-to-end run + Windows packaging (§11).
 
 ## 1. Purpose
 
@@ -103,13 +104,12 @@ Target file (Windows): `%APPDATA%\Claude\claude_desktop_config.json`
   "mcpServers": {
     "google_workspace": {
       "command": "<absolute path to uvx>",   // resolved via `where uvx`, avoids PATH issues
-      "args": ["workspace-mcp", "--tool-tier", "core"],
+      "args": ["workspace-mcp", "--tools", "gmail", "drive", "calendar"],
       "env": {
         "GOOGLE_OAUTH_CLIENT_ID": "<client id>",
-        "GOOGLE_OAUTH_CLIENT_SECRET": "<client secret>",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "<client secret>",   // see §9; required for a Web client to refresh
         "GOOGLE_MCP_CREDENTIALS_DIR": "<fixed shared path>",
-        "OAUTHLIB_INSECURE_TRANSPORT": "1",
-        "WORKSPACE_MCP_TOOLS": "gmail drive calendar"   // limit to the 3 services
+        "OAUTHLIB_INSECURE_TRANSPORT": "1"
       }
     }
   }
@@ -122,18 +122,36 @@ Notes:
 - The secret is injected at write time from Credential Manager; consider whether to
   keep it out of the on-disk config (tradeoff documented in §9).
 
-### b) Transient sign-in server the app launches (per account)
-Launch HTTP mode with the same env, drive Google consent for one email, then stop:
+### b) Transient sign-in flow the app drives (per account) — CONFIRMED
+> Verified against workspace-mcp 1.21.1 source. The earlier streamable-http guess
+> was wrong: there is no plain `/authorize` HTTP route. Auth is driven by an MCP
+> **tool** over **stdio**.
+
+The app launches the server in **stdio** mode (legacy OAuth 2.0; do NOT set
+`MCP_ENABLE_OAUTH21`) and speaks newline-delimited JSON-RPC to it:
 ```
-uvx workspace-mcp --transport streamable-http --tools gmail drive calendar
+uvx workspace-mcp --tools gmail drive calendar      # stdio is the default
 ```
-- `OAUTHLIB_INSECURE_TRANSPORT=1` allows the `http://localhost` redirect.
-- The redirect URI is `http://localhost:<WORKSPACE_MCP_PORT>/oauth2callback`
-  (default port 8000) → must be added to the OAuth client (see §7).
-- `TODO(claude-code)`: confirm the exact endpoint/tool to initiate auth for a
-  specific account (the server exposes a Google auth start; `start_google_auth`
-  tool or the `/authorize` flow). Open the system browser to it, wait for the
-  callback, then read back the cached credential file.
+Env: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`GOOGLE_MCP_CREDENTIALS_DIR`, `OAUTHLIB_INSECURE_TRANSPORT=1`,
+`WORKSPACE_MCP_PORT=8000`.
+
+Sequence (implemented in `serverManager.authorizeAccount`):
+1. `initialize` (protocolVersion `2024-11-05`) → `notifications/initialized`.
+2. `tools/call` **`start_google_auth`** with
+   `{ service_name: "Gmail", user_google_email: <email> }`.
+3. In stdio + OAuth 2.0 the server: starts a minimal callback server on
+   `http://localhost:8000/oauth2callback`, builds the consent URL with
+   `login_hint=<email>`, and **opens the system browser automatically**
+   (`webbrowser.open`). The tool's text response also contains the URL, which we
+   parse and surface as a manual-open fallback.
+4. After consent the server writes `<urlencoded-email>.json` into the shared
+   credentials dir. The app polls that file's mtime/size for a fresh write, then
+   kills the transient server.
+
+The redirect URI `http://localhost:8000/oauth2callback` must be on the OAuth
+client (see §7). The same shared credentials dir is read by the stdio server
+Claude Desktop launches, so the primed token is immediately usable.
 
 ## 7. Google Cloud one-time items still required
 
@@ -166,10 +184,17 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs. Screens:
   (`contextBridge`). Renderer never touches the filesystem or child processes
   directly — only through IPC.
 - Open external URLs (OAuth) in the system browser, not in an Electron window.
-- Decision to make: inject the secret into `claude_desktop_config.json` at write
-  time (simplest; secret then sits in that file readable by the user) vs. keep it
-  only in Credential Manager and have the stdio server read it another way.
-  Default: write it into the env block but document the exposure; offer a setting.
+- Decision (RESOLVED): the stdio server Claude Desktop launches needs
+  `GOOGLE_OAUTH_CLIENT_SECRET` to refresh tokens, and a Python process cannot read
+  Windows Credential Manager. For our confidential **Web** OAuth client the secret
+  must therefore be injected into `claude_desktop_config.json` (readable by the
+  current user). Implemented as a setting `injectSecretIntoConfig` (default
+  `true`); setting it `false` omits the secret but breaks refresh for a Web client.
+- Credential file format (confirmed, workspace-mcp 1.21.1): one JSON file per
+  account named `<urlencoded-email>.json` (plain `<email>.json` for ordinary
+  emails) in `GOOGLE_MCP_CREDENTIALS_DIR`, fields `token, refresh_token,
+  token_uri, client_id, client_secret, scopes, expiry`. `expiry` is **naive UTC**
+  ISO-8601 — parse as UTC. `oauth_states.json` is internal, not an account.
 
 ## 10. Build / run
 
@@ -179,10 +204,15 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs. Screens:
 
 ## 11. Suggested build order for Claude Code
 
-1. Prereq checks + `uvx` detection (serverManager.js).
-2. Credentials setup + Credential Manager storage (credentials.js).
-3. Claude Desktop config read/merge/write with backup (claudeConfig.js).
-4. Single-account sign-in flow end-to-end (serverManager.js + accounts.js).
-5. Dashboard status reading from credentials dir (accounts.js).
-6. Multi-account, re-auth, remove, expiry countdown.
-7. Diagnostics + polish + packaging.
+1. [DONE] Prereq checks + `uvx` detection (serverManager.js).
+2. [DONE] Credentials setup + Credential Manager storage + dir ACL lockdown (credentials.js).
+3. [DONE] Claude Desktop config read/merge/write with backup (claudeConfig.js).
+4. [DONE] Single-account sign-in flow end-to-end via stdio `start_google_auth`
+   (serverManager.js + accounts.js). See §6b.
+5. [DONE] Dashboard status reading from credentials dir, naive-UTC expiry (accounts.js).
+6. [DONE] Multi-account, re-auth, remove, expiry countdown.
+7. [PENDING] Diagnostics + polish + packaging (Part D: live E2E + `npm run dist`).
+
+> Code-level `TODO(claude-code)` markers from the scaffold are all resolved. The
+> remaining work is the live end-to-end run (needs the Google Cloud items in §7
+> done) and producing the installer.

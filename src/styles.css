@@ -105,6 +105,8 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 .account-card__email { font-family: var(--mono); font-size: 14px; }
 .account-card__meta { font-size: 12px; margin-top: 2px; }
 .account-card__actions { display: flex; gap: 8px; }
+.account-card__msg { margin-top: 6px; max-width: 52ch; }
+.account-card__msg a { color: var(--amber); }
 
 .status-dot { width: 10px; height: 10px; border-radius: 50%; }
 .status-dot--ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }

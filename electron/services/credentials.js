@@ -6,6 +6,7 @@ const keytar = require("keytar");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { execFile } = require("child_process");
 const { app } = require("electron");
 
 const SERVICE = "google-workspace-manager";
@@ -51,14 +52,46 @@ async function saveClientConfig(clientId, clientSecret) {
   const s = readSettings();
   s.clientId = (clientId || "").trim();
   if (!s.credentialsDir) s.credentialsDir = credentialsDir();
-  writeSettings(s);
   if (clientSecret) {
     await keytar.setPassword(SERVICE, SECRET_KEY, clientSecret.trim());
   }
-  // TODO(claude-code): lock down ACLs on credentialsDir to current user only
-  // (e.g. via `icacls` on Windows) the first time it's created.
-  fs.mkdirSync(credentialsDir(), { recursive: true });
+  const dir = credentialsDir();
+  fs.mkdirSync(dir, { recursive: true });
+  // Lock the credentials dir down to the current user the first time we create it.
+  // Token files are secrets; restrict ACLs so other local users can't read them.
+  if (!s.aclLocked) {
+    const locked = await lockdownDir(dir);
+    if (locked) {
+      s.aclLocked = true;
+    }
+  }
+  writeSettings(s);
   return { ok: true };
+}
+
+// Restrict a directory to the current user only (Windows: icacls). Best-effort:
+// returns true on success, false otherwise (we retry next save if it fails).
+function lockdownDir(dir) {
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(dir, 0o700);
+      return Promise.resolve(true);
+    } catch {
+      return Promise.resolve(false);
+    }
+  }
+  const user = process.env.USERNAME
+    ? `${process.env.USERDOMAIN || os.hostname()}\\${process.env.USERNAME}`
+    : null;
+  if (!user) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    // /inheritance:r removes inherited ACEs; grant only this user full control.
+    execFile(
+      "icacls",
+      [dir, "/inheritance:r", "/grant:r", `${user}:(OI)(CI)F`, "/T", "/C"],
+      (err) => resolve(!err)
+    );
+  });
 }
 
 async function getClientSecret() {
