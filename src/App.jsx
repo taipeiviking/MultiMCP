@@ -33,10 +33,6 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
-          <span className="brand__dot" />
-          <span className="brand__name">MultiMCP — Google Workspace Manager</span>
-        </div>
         <p className="brand__desc">
           Connect multiple Google Workspace accounts to Claude Desktop — sign in once,
           and Claude gets Gmail, Drive &amp; Calendar access per account. This app runs

@@ -142,7 +142,7 @@ function createWindow({ show } = { show: true }) {
     minHeight: MIN_HEIGHT,
     show: false, // shown on ready-to-show (avoids white flash) unless startHidden
     backgroundColor: "#0e1116",
-    title: "Google Workspace Manager",
+    title: "MultiMCP — Google Workspace Manager",
     icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
