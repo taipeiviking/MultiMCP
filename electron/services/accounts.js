@@ -20,6 +20,13 @@ const credentials = require("./credentials");
 const CRED_EXT = ".json";
 const NON_CREDENTIAL_STEMS = new Set(["oauth_states"]);
 
+// While the Google OAuth app is in "Testing", refresh tokens expire ~7 days
+// after issuance. The credential file's `expiry` is only the 1-hour *access*
+// token (auto-refreshed on use), so it's the wrong thing to show the user. We
+// track when each account was last authorized and count down the 7-day window.
+const REAUTH_WINDOW_DAYS = 7;
+const DAY_MS = 86400000;
+
 function registryPath() {
   const { app } = require("electron");
   return path.join(app.getPath("userData"), "accounts.json");
@@ -119,7 +126,19 @@ function parseExpiry(raw) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-function readTokenStatus(email) {
+// Record (in our registry) the moment an account was successfully authorized,
+// so the dashboard can count down the ~7-day Testing-mode re-auth window.
+function recordAuthorized(email) {
+  email = (email || "").trim().toLowerCase();
+  if (!email) return;
+  const reg = readRegistry();
+  reg.authorizedAt = reg.authorizedAt || {};
+  reg.authorizedAt[email] = new Date().toISOString();
+  if (!reg.emails.includes(email)) reg.emails.push(email);
+  writeRegistry(reg);
+}
+
+function readTokenStatus(email, reg) {
   const p = credentialFilePath(email);
   if (!p || !safeExists(p)) return { connected: false };
 
@@ -127,23 +146,49 @@ function readTokenStatus(email) {
   try {
     data = JSON.parse(fs.readFileSync(p, "utf8"));
   } catch {
-    return { connected: true, expiry: null };
+    return { connected: true, hasRefresh: false, expiry: null, expired: true };
   }
 
-  const expiry = parseExpiry(data.expiry);
   const hasRefresh = !!data.refresh_token;
+  const accessExpiry = parseExpiry(data.expiry); // 1-hour access token (diagnostic only)
+
+  // When was this account last authorized? Prefer our recorded timestamp; fall
+  // back to the credential file's mtime (its first write ≈ issuance).
+  if (!reg) reg = readRegistry();
+  let authorizedAt = null;
+  const recorded = reg.authorizedAt && reg.authorizedAt[email];
+  if (recorded) authorizedAt = new Date(recorded);
+  if (!authorizedAt || isNaN(authorizedAt.getTime())) {
+    try {
+      authorizedAt = new Date(fs.statSync(p).mtimeMs);
+    } catch {
+      authorizedAt = null;
+    }
+  }
+
+  const reauthDeadline = authorizedAt
+    ? new Date(authorizedAt.getTime() + REAUTH_WINDOW_DAYS * DAY_MS)
+    : null;
+
+  // "Needs re-auth" if there's no refresh token, or the 7-day window has passed.
+  const expired =
+    !hasRefresh || (reauthDeadline ? reauthDeadline.getTime() < Date.now() : false);
+
   return {
     connected: true,
     hasRefresh,
     scopes: Array.isArray(data.scopes) ? data.scopes : [],
-    expiry: expiry ? expiry.toISOString() : null,
-    expired: expiry ? expiry.getTime() < Date.now() : false,
+    accessExpiry: accessExpiry ? accessExpiry.toISOString() : null,
+    authorizedAt: authorizedAt ? authorizedAt.toISOString() : null,
+    // `expiry` now means the re-auth deadline (what the user actually cares about).
+    expiry: reauthDeadline ? reauthDeadline.toISOString() : null,
+    expired,
   };
 }
 
 function listAccounts() {
   const reg = readRegistry();
-  return reg.emails.map((email) => ({ email, ...readTokenStatus(email) }));
+  return reg.emails.map((email) => ({ email, ...readTokenStatus(email, reg) }));
 }
 
 function addAccount(email) {
@@ -169,5 +214,6 @@ module.exports = {
   addAccount,
   removeAccount,
   readTokenStatus,
+  recordAuthorized,
   credentialFilePath,
 };

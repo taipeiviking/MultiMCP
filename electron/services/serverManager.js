@@ -262,6 +262,12 @@ async function authorizeAccount(email) {
     await sleep(POLL_INTERVAL_MS);
     const now = credentialSignature(email);
     if (now && now !== before) {
+      // Stamp the authorization time so the dashboard counts down the 7-day window.
+      try {
+        require("./accounts").recordAuthorized(email);
+      } catch (e) {
+        log.warn("authorize", "recordAuthorized failed", { message: String(e) });
+      }
       log.info("authorize", "Fresh credential file detected", {
         email,
         signature: now,

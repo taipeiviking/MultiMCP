@@ -4,13 +4,14 @@ const api = window.api;
 
 function expiryLabel(account) {
   if (!account.connected) return "not connected";
-  if (account.expired) return "expired";
+  if (!account.hasRefresh) return "needs re-auth (no refresh token)";
+  if (account.expired) return "re-auth needed";
   if (!account.expiry) return "connected";
   const ms = new Date(account.expiry).getTime() - Date.now();
-  if (ms <= 0) return "expired";
+  if (ms <= 0) return "re-auth needed";
   const days = Math.floor(ms / 86400000);
   const hours = Math.floor((ms % 86400000) / 3600000);
-  return days > 0 ? `expires in ${days}d ${hours}h` : `expires in ${hours}h`;
+  return days > 0 ? `re-auth in ${days}d ${hours}h` : `re-auth in ${hours}h`;
 }
 
 export default function AccountCard({ account, onChanged }) {
