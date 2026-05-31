@@ -9,6 +9,7 @@ export default function Dashboard({ creds, onChangeCreds }) {
   const [newEmail, setNewEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [dbg, setDbg] = useState(null);
+  const [autostart, setAutostart] = useState(null); // {enabled, isDev}
 
   const refresh = useCallback(async () => {
     const [a, c] = await Promise.all([api.accounts.list(), api.claude.status()]);
@@ -18,7 +19,13 @@ export default function Dashboard({ creds, onChangeCreds }) {
 
   useEffect(() => {
     api.debug?.get().then(setDbg).catch(() => {});
+    api.autostart?.get().then(setAutostart).catch(() => {});
   }, []);
+
+  async function toggleAutostart(e) {
+    const res = await api.autostart.set(e.target.checked);
+    setAutostart(res);
+  }
 
   useEffect(() => {
     refresh();
@@ -73,8 +80,24 @@ export default function Dashboard({ creds, onChangeCreds }) {
 
       <p className="muted small note">
         Heads-up: while the Google app is in “Testing”, tokens expire about every 7 days —
-        just hit Re-auth when an account goes stale.
+        the app runs in the tray and will warn you before an account goes stale.
       </p>
+
+      {autostart && (
+        <label className="diag muted small" style={{ cursor: "pointer" }}>
+          <span>
+            <input
+              type="checkbox"
+              checked={!!autostart.enabled}
+              onChange={toggleAutostart}
+              disabled={autostart.isDev}
+              style={{ marginRight: 8 }}
+            />
+            Start automatically with Windows (runs in the background tray)
+            {autostart.isDev && " — available in the installed app"}
+          </span>
+        </label>
+      )}
 
       {dbg?.logPath && (
         <div className="diag muted small">

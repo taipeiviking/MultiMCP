@@ -30,4 +30,8 @@ contextBridge.exposeInMainWorld("api", {
     get: () => ipcRenderer.invoke("debug:get"),
     revealLog: () => ipcRenderer.invoke("debug:revealLog"),
   },
+  autostart: {
+    get: () => ipcRenderer.invoke("autostart:get"),
+    set: (enabled) => ipcRenderer.invoke("autostart:set", { enabled }),
+  },
 });

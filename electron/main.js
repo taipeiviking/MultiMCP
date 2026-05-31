@@ -1,8 +1,25 @@
 // Electron main process.
 // Owns the only privileged surface: filesystem, child processes, Credential Manager.
 // The renderer talks to these ONLY through the typed IPC channels registered below.
+//
+// Runs as a background TRAY app:
+//  - Closing the window hides it to the tray (the app keeps running).
+//  - Optional "start with Windows" (registers only in a packaged build).
+//  - Periodic token-expiry check with a native notification + one-click re-auth.
+// NOTE: this control panel does NOT need to run for Claude Desktop to use the
+// accounts — Claude spawns its own uvx workspace-mcp per session from the shared
+// credentials dir. The tray app exists to warn before the ~7-day token expiry.
 
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  Tray,
+  Menu,
+  nativeImage,
+  Notification,
+} = require("electron");
 const path = require("path");
 
 const credentials = require("./services/credentials");
@@ -12,15 +29,78 @@ const claudeConfig = require("./services/claudeConfig");
 const log = require("./services/logger");
 
 const isDev = !app.isPackaged;
+const APP_ID = "com.local.googleworkspacemanager";
+const EXPIRY_WARN_MS = 48 * 3600 * 1000; // warn when re-auth is due within 48h
+const EXPIRY_CHECK_INTERVAL_MS = 6 * 3600 * 1000; // re-check every 6h
 
-function createWindow() {
-  const win = new BrowserWindow({
+let win = null;
+let tray = null;
+let isQuitting = false;
+let expiryTimer = null;
+const notifiedState = new Map(); // email -> last notified state ("expired"|"soon")
+
+// Single-instance: a tray/autostart app must never run twice.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => showWindow());
+  bootstrap();
+}
+
+function bootstrap() {
+  app.setAppUserModelId(APP_ID);
+
+  app.whenReady().then(() => {
+    log.init();
+    log.info("app", "app ready", {
+      isDev,
+      version: app.getVersion(),
+      argv: process.argv.slice(1),
+    });
+    registerIpc();
+    createTray();
+    const startHidden =
+      process.argv.includes("--hidden") ||
+      app.getLoginItemSettings().wasOpenedAtLogin;
+    createWindow({ show: !startHidden });
+    scheduleExpiryChecks();
+
+    app.on("activate", () => showWindow());
+  });
+
+  // With close-to-tray the window is hidden, not destroyed, so this rarely
+  // fires; keep the app alive in the tray regardless (do NOT auto-quit).
+  app.on("window-all-closed", () => {});
+
+  app.on("before-quit", () => {
+    isQuitting = true;
+    if (expiryTimer) clearInterval(expiryTimer);
+    serverManager.stopAll().catch(() => {});
+  });
+
+  process.on("uncaughtException", (err) =>
+    log.error("process", "uncaughtException", {
+      message: String(err),
+      stack: err && err.stack,
+    })
+  );
+  process.on("unhandledRejection", (reason) =>
+    log.error("process", "unhandledRejection", { reason: String(reason) })
+  );
+}
+
+// --- Window -----------------------------------------------------------------
+
+function createWindow({ show } = { show: true }) {
+  win = new BrowserWindow({
     width: 1100,
     height: 760,
     minWidth: 880,
     minHeight: 600,
+    show: false, // shown on ready-to-show (avoids white flash) unless startHidden
     backgroundColor: "#0e1116",
     title: "Google Workspace Manager",
+    icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -35,6 +115,22 @@ function createWindow() {
     win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
 
+  win.once("ready-to-show", () => {
+    if (show) win.show();
+  });
+
+  // Close = hide to tray (unless the user chose Quit).
+  win.on("close", (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      win.hide();
+      notifyFirstHide();
+    }
+  });
+  win.on("closed", () => {
+    win = null;
+  });
+
   // Force OAuth / external links into the system browser, never an Electron window.
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -42,8 +138,227 @@ function createWindow() {
   });
 }
 
-// Wrap ipcMain.handle so every call is logged (args redacted) with its outcome
-// and timing. Errors are logged and re-thrown so the renderer still sees them.
+function showWindow() {
+  if (!win || win.isDestroyed()) {
+    createWindow({ show: true });
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+let hideHintShown = false;
+function notifyFirstHide() {
+  if (hideHintShown) return;
+  hideHintShown = true;
+  if (Notification.isSupported()) {
+    new Notification({
+      title: "Still running in the tray",
+      body: "Workspace Manager keeps running so it can warn you before accounts expire. Quit from the tray icon.",
+      icon: path.join(__dirname, "assets", "icon.png"),
+    }).show();
+  }
+}
+
+// --- Tray -------------------------------------------------------------------
+
+function trayImage() {
+  const p = path.join(__dirname, "assets", "tray.png");
+  const img = nativeImage.createFromPath(p);
+  return img.isEmpty() ? undefined : img;
+}
+
+function createTray() {
+  const img = trayImage();
+  tray = new Tray(img || nativeImage.createEmpty());
+  tray.setToolTip("Google Workspace Manager");
+  tray.on("click", () => showWindow());
+  tray.on("double-click", () => showWindow());
+  rebuildTrayMenu();
+}
+
+function accountSummaryLines() {
+  let list = [];
+  try {
+    list = accounts.listAccounts();
+  } catch (e) {
+    return { items: [{ label: "Status unavailable", enabled: false }], tip: "" };
+  }
+  if (list.length === 0) {
+    return {
+      items: [{ label: "No accounts added yet", enabled: false }],
+      tip: "Google Workspace Manager — no accounts",
+    };
+  }
+  const items = list.map((a) => {
+    const state = !a.connected
+      ? "not connected"
+      : !a.hasRefresh
+      ? "needs re-auth"
+      : a.expired
+      ? "re-auth needed"
+      : expiryShort(a.expiry);
+    return {
+      label: `${dot(a)}  ${a.email} — ${state}`,
+      click: () => showWindow(),
+    };
+  });
+  const bad = list.filter((a) => !a.connected || a.expired || !a.hasRefresh).length;
+  const tip =
+    bad > 0
+      ? `Workspace Manager — ${bad} account(s) need attention`
+      : `Workspace Manager — ${list.length} account(s) OK`;
+  return { items, tip };
+}
+
+function dot(a) {
+  if (!a.connected || a.expired || !a.hasRefresh) return "●"; // attention
+  return "○";
+}
+
+function expiryShort(iso) {
+  if (!iso) return "connected";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "re-auth needed";
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
+  return d > 0 ? `re-auth in ${d}d ${h}h` : `re-auth in ${h}h`;
+}
+
+function rebuildTrayMenu() {
+  if (!tray) return;
+  const { items, tip } = accountSummaryLines();
+  tray.setToolTip(tip);
+
+  const autostart = getAutostartEnabled();
+  const menu = Menu.buildFromTemplate([
+    { label: "Open Dashboard", click: () => showWindow() },
+    { type: "separator" },
+    { label: "Accounts", enabled: false },
+    ...items,
+    { type: "separator" },
+    { label: "Re-check now", click: () => checkExpiries(true) },
+    {
+      label: "Start with Windows",
+      type: "checkbox",
+      checked: autostart,
+      click: (item) => setAutostartEnabled(item.checked),
+    },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+  tray.setContextMenu(menu);
+}
+
+// --- Autostart (OS login item) ---------------------------------------------
+
+function getAutostartEnabled() {
+  try {
+    return app.getLoginItemSettings().openAtLogin;
+  } catch {
+    return false;
+  }
+}
+
+function setAutostartEnabled(enabled) {
+  try {
+    if (isDev) {
+      // In dev the login item would point at the Electron binary, not the real
+      // app — registering it is meaningless/misleading. Reflect intent only.
+      log.warn("autostart", "ignored in dev (only applies to packaged build)", {
+        requested: enabled,
+      });
+    } else {
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        args: ["--hidden"], // launch straight to the tray, no window
+      });
+      log.info("autostart", "set", { enabled });
+    }
+  } catch (e) {
+    log.error("autostart", "failed", { message: String(e) });
+  }
+  rebuildTrayMenu();
+  return getAutostartEnabled();
+}
+
+// --- Expiry checks ----------------------------------------------------------
+
+function scheduleExpiryChecks() {
+  setTimeout(() => checkExpiries(false), 8000); // shortly after launch
+  expiryTimer = setInterval(() => checkExpiries(false), EXPIRY_CHECK_INTERVAL_MS);
+}
+
+function checkExpiries(manual) {
+  let list = [];
+  try {
+    list = accounts.listAccounts();
+  } catch (e) {
+    log.error("expiry", "listAccounts failed", { message: String(e) });
+    return;
+  }
+  rebuildTrayMenu();
+
+  for (const a of list) {
+    const state = classify(a);
+    const prev = notifiedState.get(a.email);
+    if (state === "ok") {
+      notifiedState.delete(a.email);
+      continue;
+    }
+    if (state !== prev) {
+      notifiedState.set(a.email, state);
+      notifyExpiry(a, state);
+    }
+  }
+
+  if (manual) {
+    const bad = list.filter((a) => classify(a) !== "ok");
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "Workspace Manager",
+        body:
+          bad.length === 0
+            ? "All accounts are connected and current."
+            : `${bad.length} account(s) need re-auth.`,
+        icon: path.join(__dirname, "assets", "icon.png"),
+      }).show();
+    }
+  }
+}
+
+function classify(a) {
+  if (!a.connected || !a.hasRefresh || a.expired) return "expired";
+  if (a.expiry && new Date(a.expiry).getTime() - Date.now() < EXPIRY_WARN_MS)
+    return "soon";
+  return "ok";
+}
+
+function notifyExpiry(a, state) {
+  if (!Notification.isSupported()) return;
+  const body =
+    state === "expired"
+      ? `${a.email} needs re-authentication. Click to open and re-auth.`
+      : `${a.email} ${expiryShort(a.expiry)}. Click to re-auth before it expires.`;
+  const n = new Notification({
+    title: "Google account needs attention",
+    body,
+    icon: path.join(__dirname, "assets", "icon.png"),
+  });
+  n.on("click", () => showWindow());
+  n.show();
+  log.info("expiry", "notified", { email: a.email, state });
+}
+
+// --- IPC --------------------------------------------------------------------
+
 function handle(channel, fn) {
   ipcMain.handle(channel, async (_e, payload) => {
     const t0 = Date.now();
@@ -63,57 +378,47 @@ function handle(channel, fn) {
   });
 }
 
-// --- IPC: credentials -------------------------------------------------------
-handle("creds:get", () => credentials.getClientConfig());
-handle("creds:save", ({ clientId, clientSecret }) =>
-  credentials.saveClientConfig(clientId, clientSecret)
-);
+function registerIpc() {
+  // credentials
+  handle("creds:get", () => credentials.getClientConfig());
+  handle("creds:save", ({ clientId, clientSecret }) =>
+    credentials.saveClientConfig(clientId, clientSecret)
+  );
 
-// --- IPC: prerequisites -----------------------------------------------------
-handle("prereq:check", () => serverManager.checkPrerequisites());
+  // prerequisites
+  handle("prereq:check", () => serverManager.checkPrerequisites());
 
-// --- IPC: accounts ----------------------------------------------------------
-handle("accounts:list", () => accounts.listAccounts());
-handle("accounts:add", ({ email }) => accounts.addAccount(email));
-handle("accounts:remove", ({ email }) => accounts.removeAccount(email));
-handle("accounts:authorize", ({ email }) => serverManager.authorizeAccount(email));
-
-// --- IPC: claude config -----------------------------------------------------
-handle("claude:status", () => claudeConfig.getStatus());
-handle("claude:write", () => claudeConfig.writeServerEntry());
-
-// --- IPC: diagnostics -------------------------------------------------------
-handle("server:test", () => serverManager.testServer());
-handle("debug:get", () => ({
-  logPath: log.getLogPath(),
-  versions: process.versions,
-  platform: process.platform,
-}));
-handle("debug:revealLog", () => {
-  const p = log.getLogPath();
-  if (p) shell.showItemInFolder(p);
-  return { ok: !!p, path: p };
-});
-
-app.whenReady().then(() => {
-  log.init();
-  log.info("app", "app ready", { isDev, version: app.getVersion() });
-  createWindow();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  // accounts
+  handle("accounts:list", () => accounts.listAccounts());
+  handle("accounts:add", ({ email }) => accounts.addAccount(email));
+  handle("accounts:remove", ({ email }) => accounts.removeAccount(email));
+  handle("accounts:authorize", async ({ email }) => {
+    const r = await serverManager.authorizeAccount(email);
+    rebuildTrayMenu(); // status may have changed
+    return r;
   });
-});
 
-process.on("uncaughtException", (err) =>
-  log.error("process", "uncaughtException", { message: String(err), stack: err && err.stack })
-);
-process.on("unhandledRejection", (reason) =>
-  log.error("process", "unhandledRejection", { reason: String(reason) })
-);
+  // claude config
+  handle("claude:status", () => claudeConfig.getStatus());
+  handle("claude:write", () => claudeConfig.writeServerEntry());
 
-app.on("window-all-closed", () => {
-  // Ensure any transient sign-in server is stopped.
-  serverManager.stopAll().finally(() => {
-    if (process.platform !== "darwin") app.quit();
+  // diagnostics
+  handle("server:test", () => serverManager.testServer());
+  handle("debug:get", () => ({
+    logPath: log.getLogPath(),
+    versions: process.versions,
+    platform: process.platform,
+  }));
+  handle("debug:revealLog", () => {
+    const p = log.getLogPath();
+    if (p) shell.showItemInFolder(p);
+    return { ok: !!p, path: p };
   });
-});
+
+  // tray / autostart
+  handle("autostart:get", () => ({ enabled: getAutostartEnabled(), isDev }));
+  handle("autostart:set", ({ enabled }) => ({
+    enabled: setAutostartEnabled(!!enabled),
+    isDev,
+  }));
+}
