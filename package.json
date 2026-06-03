@@ -30,7 +30,12 @@
     "productName": "Google Workspace Manager",
     "files": [
       "electron/**/*",
-      "dist/**/*"
+      "dist/index.html",
+      "dist/assets/**/*",
+      "!dist/win-unpacked/**",
+      "!dist/*.exe",
+      "!dist/*.blockmap",
+      "!dist/builder-debug.yml"
     ],
     "asarUnpack": [
       "**/*.node",
