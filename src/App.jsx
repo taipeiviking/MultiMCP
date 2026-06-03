@@ -64,11 +64,17 @@ export default function App() {
 function StatusBar({ prereqs }) {
   const uvxOk = !!prereqs?.uvx?.ok;
   const uvxPath = prereqs?.uvx?.path;
+  const bundled = !!prereqs?.uvx?.bundled;
+  const label = uvxOk
+    ? bundled
+      ? "Engine ready (bundled)"
+      : "Engine ready"
+    : "Engine missing — install uv";
   return (
     <footer className={`statusbar ${uvxOk ? "statusbar--ok" : "statusbar--warn"}`}>
       <span className={`statusbar__dot ${uvxOk ? "is-ok" : "is-warn"}`} />
       <span className="statusbar__text" title={uvxPath || ""}>
-        {uvxOk ? "Engine ready" : "Engine missing — install uv"}
+        {label}
       </span>
     </footer>
   );

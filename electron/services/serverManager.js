@@ -43,16 +43,46 @@ function which(cmd) {
   });
 }
 
+// Path to the uvx we SHIP with the app (electron-builder extraResources puts
+// vendor/uv -> <resources>/uv). In dev there's no resourcesPath app bundle, so we
+// look in the repo's vendor/uv. Returns the path only if the file exists.
+function bundledUvxPath() {
+  const exe = process.platform === "win32" ? "uvx.exe" : "uvx";
+  const candidates = [];
+  try {
+    const { app } = require("electron");
+    if (app.isPackaged && process.resourcesPath) {
+      candidates.push(path.join(process.resourcesPath, "uv", exe));
+    }
+  } catch {
+    /* electron not ready / not available */
+  }
+  // dev fallback: repo vendor dir
+  candidates.push(path.join(__dirname, "..", "..", "vendor", "uv", exe));
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+// Resolve uvx: prefer the BUNDLED copy (always present, absolute path that Claude
+// Desktop can launch even with a minimal PATH), then fall back to PATH for users
+// who already have uv installed.
 async function resolveUvxPath() {
-  return (await which("uvx")) || null;
+  return bundledUvxPath() || (await which("uvx")) || null;
 }
 
 async function checkPrerequisites() {
   const uvx = await resolveUvxPath();
+  const bundled = !!bundledUvxPath() && uvx === bundledUvxPath();
   // uv can provision Python, but report it for clarity.
   const python = (await which("python")) || (await which("python3"));
   return {
-    uvx: { ok: !!uvx, path: uvx },
+    uvx: { ok: !!uvx, path: uvx, bundled },
     python: { ok: !!python, path: python },
     installHint:
       'powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"',
