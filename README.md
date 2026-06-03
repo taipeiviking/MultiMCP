@@ -67,16 +67,52 @@ quit** Claude from its tray icon and reopen. See
 
 ## 💻 Use it on a second computer (export / import)
 
-Already set up on one PC and want the same accounts on a laptop? You don't have to
-redo Google Cloud or re-sign every account:
+Already set up on one PC and want the same accounts on your laptop? You don't have to
+redo the Google Cloud setup or sign every account in again. The app can **export your
+whole configuration to a single file** and **import it on the other machine**.
 
-1. On the first PC: **Export settings…** (dashboard) → save the `.json`. It carries
-   your Client ID + secret, account list, and each account's saved sign-in.
-2. Move the file to the other PC, install this app there, then **Import settings…**.
-3. Click **Write config** and restart Claude Desktop.
+<p align="center">
+  <img src="docs/images/import-configuration-screen.jpeg" alt="The first-run screen: enter your Client ID and Secret, or import a configuration file exported from another computer" width="820">
+</p>
 
-> ⚠️ The export file contains your client secret and live tokens — treat it like a
-> password and delete it when done. Details: [HELP.md](HELP.md#export-import).
+### What's in the exported file
+One `.json` that carries everything the other machine needs to "just work":
+
+| Included | Why it's needed |
+|---|---|
+| **Client ID & Client Secret** | the one OAuth client shared by all accounts (the secret comes out of Windows Credential Manager) |
+| **Account list** | which Workspace emails you've added |
+| **Each account's saved sign-in** | the per-account refresh token `workspace-mcp` uses — so no re-consent in the browser |
+
+### Step 1 — Export (on the computer that's already set up)
+At the bottom of the dashboard click **Export settings…**, choose where to save, and
+you'll get a file like `google-workspace-manager-backup-YYYY-MM-DD.json`.
+
+### Step 2 — Move the file
+Copy it to the other computer (USB stick, private cloud folder, etc.).
+
+### Step 3 — Import (on the new computer)
+Install and launch the app. On the very first screen (*"Connect your Google OAuth
+client"*, shown above) click **📥 Import configuration from a file…** — you do **not**
+need to type the Client ID/Secret first; the import fills those in too. Pick the file,
+review the summary, and choose:
+
+- **Import (keep existing)** — adds accounts/sign-ins that aren't already on this PC and
+  leaves any existing ones untouched. *(Recommended.)*
+- **Import & overwrite** — also replaces existing sign-in tokens with the ones from the
+  file (use when the file is the newer/authoritative copy).
+
+Then click **Write config** and restart Claude Desktop. As long as the tokens are still
+within Google's ~7-day window, no re-auth is needed; if one is stale, just click
+**Re-auth** for that account.
+
+> The same **Export / Import settings** controls are also on the dashboard after setup.
+
+> ⚠️ **Treat the exported file like a password.** It contains your client secret and live
+> refresh tokens — anyone with it can act as those accounts. It's written with
+> restrictive permissions; store it somewhere private and delete it once the second PC is
+> set up. Importing keeps **this** computer's own credentials-folder path, so nothing
+> local is overwritten by accident. Full details: [HELP.md](HELP.md#export-import).
 
 > **Status: complete and shipping.** Verified live end-to-end against `workspace-mcp`
 > (Gmail/Drive/Calendar read for a real account through Claude Desktop), runs as a
