@@ -22,6 +22,7 @@ const {
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { execFileSync } = require("child_process");
 
 const credentials = require("./services/credentials");
 const accounts = require("./services/accounts");
@@ -310,17 +311,42 @@ function getAutostartEnabled() {
   return autostartPref();
 }
 
+// The HKCU Run value name (Electron used the AppUserModelId; keep it identical
+// so we overwrite — not duplicate — any entry a previous build registered).
+const RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+// Build the exact command Windows runs at login. The path MUST be quoted: the
+// installed exe lives under "...\Google Workspace Manager.exe" (spaces), and an
+// unquoted value makes Windows try to run "...\Google" — the app then silently
+// never starts. (Electron's setLoginItemSettings({args}) writes the path
+// UNQUOTED — the bug we are working around — so we write the key ourselves.)
+function autostartCommand() {
+  return `"${process.execPath}" --hidden`;
+}
+
+// Write/remove the Run key via reg.exe (no native deps, always available).
+function writeAutostartRegistry(enabled) {
+  if (enabled) {
+    execFileSync("reg.exe", [
+      "add", RUN_KEY, "/v", APP_ID, "/t", "REG_SZ",
+      "/d", autostartCommand(), "/f",
+    ]);
+  } else {
+    // /f so a missing value isn't treated as an error.
+    try {
+      execFileSync("reg.exe", ["delete", RUN_KEY, "/v", APP_ID, "/f"]);
+    } catch {
+      /* value already absent */
+    }
+  }
+}
+
 function setAutostartEnabled(enabled) {
   enabled = !!enabled;
   try {
     credentials.patchSettings({ autostart: enabled });
-    if (!isDev) {
-      app.setLoginItemSettings({
-        openAtLogin: enabled,
-        args: ["--hidden"], // launch straight to the tray, no window
-      });
-    }
-    log.info("autostart", "set", { enabled, isDev });
+    if (!isDev) writeAutostartRegistry(enabled);
+    log.info("autostart", "set", { enabled, isDev, cmd: autostartCommand() });
   } catch (e) {
     log.error("autostart", "failed", { message: String(e) });
   }
@@ -328,14 +354,31 @@ function setAutostartEnabled(enabled) {
   return getAutostartEnabled();
 }
 
-// Reconcile the OS login item with the saved preference at startup (packaged).
+// Reconcile the Run key with the saved preference at startup (packaged). This
+// also SELF-HEALS an old broken (unquoted) value: we always rewrite to the
+// correctly quoted command when autostart is on.
 function applyAutostartPreference() {
   if (isDev) return;
   const desired = autostartPref();
   try {
-    if (app.getLoginItemSettings().openAtLogin !== desired) {
-      app.setLoginItemSettings({ openAtLogin: desired, args: ["--hidden"] });
-      log.info("autostart", "reconciled at launch", { desired });
+    let current = null;
+    try {
+      const out = execFileSync("reg.exe", [
+        "query", RUN_KEY, "/v", APP_ID,
+      ]).toString();
+      const m = out.match(/REG_SZ\s+(.*)\s*$/m);
+      current = m ? m[1].trim() : null;
+    } catch {
+      current = null; // value not present
+    }
+    const want = desired ? autostartCommand() : null;
+    if (current !== want) {
+      writeAutostartRegistry(desired);
+      log.info("autostart", "reconciled at launch", {
+        desired,
+        was: current,
+        now: want,
+      });
     }
   } catch (e) {
     log.error("autostart", "reconcile failed", { message: String(e) });
