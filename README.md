@@ -16,10 +16,10 @@ Claude Desktop config.
 2. Run it. If Windows **SmartScreen** shows a one-time *"Windows protected your PC"*
    notice (normal for any app downloaded from the web without a paid code-signing
    certificate), click **More info → Run anyway**. Installs per-user; no admin needed.
-3. Make sure [`uv`/`uvx`](https://github.com/astral-sh/uv) is installed (see
-   Prerequisites), then launch the app, enter your Google OAuth Client ID + Secret
-   once, add each account and **Sign in**, click **Write config**, and restart
-   Claude Desktop.
+3. Launch the app (the **uv engine is bundled — no separate install needed**),
+   enter your Google OAuth Client ID + Secret once (or **Import** a config file from
+   another computer), add each account and **Sign in**, click **Write config**, and
+   restart Claude Desktop.
 
 Full step-by-step guide: **[HELP.md](HELP.md)**.
 
@@ -139,8 +139,9 @@ within Google's ~7-day window, no re-auth is needed; if one is stale, just click
 
 ## Prerequisites
 - Windows 10/11
-- [`uv`/`uvx`](https://github.com/astral-sh/uv) on PATH — the app shells out to it.
-  Install: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+- **The `uv`/`uvx` engine is bundled with the installer — no separate install needed.**
+  (If you already have [`uv`](https://github.com/astral-sh/uv) installed, the app just
+  prefers its own bundled copy. On first run, uv auto-provisions Python + `workspace-mcp`.)
 - A Google Cloud project with: OAuth client (Web application), **standard** Gmail,
   Drive, and **Calendar** APIs enabled, consent screen = External, your accounts
   added as Test users, and redirect URI `http://localhost:8000/oauth2callback` on

@@ -70,8 +70,9 @@ primed here. That's the whole trick.
 <a id="first-time-setup"></a>
 ## First-time setup
 
-1. **Install prerequisites** — Node isn't needed to *run* the installed app, but
-   you do need `uv`/`uvx` (see below). The app checks and tells you if it's missing.
+1. **No engine install needed** — the `uv`/`uvx` engine is **bundled with the app**.
+   The footer shows **"Engine ready (bundled)"**. (If you already have `uv`, the app
+   prefers its bundled copy. On first run, uv auto-provisions Python + `workspace-mcp`.)
 2. **Enter your Google OAuth Client ID + Secret** (Credentials screen). The secret
    goes into Windows Credential Manager; the Client ID into local settings.
 3. **Add each account** and click **Sign in** — complete consent in the browser.
@@ -84,13 +85,11 @@ primed here. That's the whole trick.
 ## Prerequisites
 
 - **Windows 10/11.**
-- **`uv` / `uvx`** on your PATH — the app shells out to it to run `workspace-mcp`.
-  Install with:
-  ```powershell
-  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-  ```
-  The top-right chip shows **`uvx ready`** (green) when it's found.
-- **Python 3.10+** — `uv` can provision this automatically.
+- **The `uv` / `uvx` engine is bundled** with the installer — you do **not** need to
+  install it separately. The footer shows **"Engine ready (bundled)"**.
+  - If you'd rather use your own system `uv`, install it and the app will still work
+    (it prefers the bundled copy). Install: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+- **Python** — `uv` provisions this automatically on first run; nothing to install.
 
 ---
 
@@ -143,8 +142,9 @@ Click **Write config** in the status strip. The app:
 - backs up your existing `claude_desktop_config.json` first,
 - **merges** in a `google_workspace` server entry (never clobbering your other MCP
   servers),
-- writes the absolute path to `uvx` (Claude launches with a minimal PATH, so a
-  bare `uvx` would fail).
+- writes the absolute path to the **bundled** `uvx` (Claude launches with a minimal
+  PATH, so a bare `uvx` would fail — this is why the engine is bundled and referenced
+  by full path).
 
 Then **fully quit and reopen Claude Desktop**. You'll find **google_workspace**
 under Connectors / tools.
@@ -267,7 +267,9 @@ as long as the tokens are still within their ~7-day window.
 <a id="troubleshooting"></a>
 ## Troubleshooting
 
-**`uvx missing`** — install `uv` (see Prerequisites), then reopen the app.
+**`Engine missing`** — the bundled engine should make this rare. Fully quit the app
+(tray → Quit) and relaunch so it re-checks. If you run from source in dev, run
+`npm run fetch-uv` once to populate `vendor/uv` (or install system `uv`).
 
 **`redirect_uri_mismatch` in the browser** — the redirect URI on your OAuth client
 must be exactly `http://localhost:8000/oauth2callback`. Newly added URIs can take a
