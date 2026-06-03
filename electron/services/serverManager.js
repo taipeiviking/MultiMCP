@@ -76,17 +76,60 @@ async function resolveUvxPath() {
   return bundledUvxPath() || (await which("uvx")) || null;
 }
 
+// Actually RUN `uvx --version` to confirm the engine is executable — not just that
+// the file exists. Returns { ok, version } (ok=false on spawn error/nonzero/timeout).
+function probeUvx(uvxPath) {
+  return new Promise((resolve) => {
+    if (!uvxPath) return resolve({ ok: false, version: null });
+    let done = false;
+    const finish = (r) => {
+      if (!done) {
+        done = true;
+        resolve(r);
+      }
+    };
+    let out = "";
+    try {
+      const proc = execFile(uvxPath, ["--version"], { windowsHide: true }, (err, stdout) => {
+        if (err) return finish({ ok: false, version: null });
+        out = (stdout || "").toString().trim();
+        finish({ ok: true, version: out || null });
+      });
+      const t = setTimeout(() => {
+        try {
+          proc.kill();
+        } catch {}
+        finish({ ok: false, version: null, timedOut: true });
+      }, 8000);
+      proc.on("exit", () => clearTimeout(t));
+    } catch (e) {
+      finish({ ok: false, version: null, error: String(e) });
+    }
+  });
+}
+
 async function checkPrerequisites() {
-  const uvx = await resolveUvxPath();
-  const bundled = !!bundledUvxPath() && uvx === bundledUvxPath();
+  const uvxPath = await resolveUvxPath();
+  const bundled = !!bundledUvxPath() && uvxPath === bundledUvxPath();
+  // Verify it actually RUNS (catches a corrupt/blocked/AV-quarantined binary that
+  // merely exists on disk) — the prior check only tested existence.
+  const probe = uvxPath ? await probeUvx(uvxPath) : { ok: false, version: null };
   // uv can provision Python, but report it for clarity.
   const python = (await which("python")) || (await which("python3"));
-  return {
-    uvx: { ok: !!uvx, path: uvx, bundled },
+  const result = {
+    uvx: { ok: probe.ok, path: uvxPath, bundled, version: probe.version, found: !!uvxPath },
     python: { ok: !!python, path: python },
     installHint:
       'powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"',
   };
+  log.info("prereq", "checkPrerequisites", {
+    uvxPath,
+    bundled,
+    runs: probe.ok,
+    version: probe.version,
+    timedOut: probe.timedOut || false,
+  });
+  return result;
 }
 
 async function baseEnv() {

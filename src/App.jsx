@@ -19,7 +19,15 @@ export default function App() {
 
   useEffect(() => {
     refresh();
-    api.app?.version().then(setVersion).catch(() => {});
+    api.app
+      ?.version()
+      .then((v) => {
+        setVersion(v);
+        // The page's <title> overrides the BrowserWindow title once loaded, so set
+        // the document title here to keep the version visible in the OS title bar.
+        if (v) document.title = `MultiMCP — Google Workspace Manager  v${v}`;
+      })
+      .catch(() => {});
   }, [refresh]);
 
   if (loading) {
@@ -62,18 +70,20 @@ export default function App() {
 }
 
 function StatusBar({ prereqs }) {
-  const uvxOk = !!prereqs?.uvx?.ok;
-  const uvxPath = prereqs?.uvx?.path;
-  const bundled = !!prereqs?.uvx?.bundled;
+  const uvx = prereqs?.uvx || {};
+  const uvxOk = !!uvx.ok; // ok === it actually RAN (uvx --version)
+  const found = !!uvx.found; // file exists but may not run
+  const bundled = !!uvx.bundled;
+  const ver = uvx.version ? ` ${uvx.version.replace(/^uvx\s*/i, "v").split(" ")[0]}` : "";
   const label = uvxOk
-    ? bundled
-      ? "Engine ready (bundled)"
-      : "Engine ready"
+    ? `Engine ready${bundled ? " (bundled)" : ""}${ver}`
+    : found
+    ? "Engine found but won't run — see View log"
     : "Engine missing — install uv";
   return (
     <footer className={`statusbar ${uvxOk ? "statusbar--ok" : "statusbar--warn"}`}>
       <span className={`statusbar__dot ${uvxOk ? "is-ok" : "is-warn"}`} />
-      <span className="statusbar__text" title={uvxPath || ""}>
+      <span className="statusbar__text" title={uvx.path || ""}>
         {label}
       </span>
     </footer>
