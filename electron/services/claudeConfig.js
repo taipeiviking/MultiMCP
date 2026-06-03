@@ -78,6 +78,43 @@ async function getStatus() {
   return { present: !!existing, inSync, path: configPath() };
 }
 
+// Self-heal a stale config at startup. An OLDER app version (or a config written
+// before uv was bundled) may have a google_workspace.command of bare "uvx" or an
+// absolute path that no longer exists — both cause Claude's "spawn uvx ENOENT".
+// If we detect that AND we have a valid (bundled) uvx now, rewrite the entry so the
+// user doesn't have to remember to click "Write config" again.
+async function healServerEntryIfStale() {
+  try {
+    const cfg = readConfig();
+    const existing = cfg.mcpServers && cfg.mcpServers[SERVER_KEY];
+    if (!existing) return { healed: false, reason: "no existing entry" };
+
+    const cmd = existing.command;
+    const isBare = !cmd || !path.isAbsolute(cmd); // "uvx" (no path) can't be found by Claude
+    const missing = cmd && path.isAbsolute(cmd) && !fs.existsSync(cmd);
+    if (!isBare && !missing) return { healed: false, reason: "command ok" };
+
+    // Only heal if we can resolve a real uvx now (prefer bundled).
+    const good = await serverManager.resolveUvxPath();
+    if (!good || !fs.existsSync(good)) {
+      log.warn("claudeConfig", "stale command but no valid uvx to heal with", { cmd });
+      return { healed: false, reason: "no valid uvx" };
+    }
+    if (good === cmd) return { healed: false, reason: "already good" };
+
+    await writeServerEntry();
+    log.info("claudeConfig", "Healed stale Claude config command", {
+      was: cmd,
+      now: good,
+      reason: isBare ? "bare command" : "missing file",
+    });
+    return { healed: true, was: cmd, now: good };
+  } catch (e) {
+    log.error("claudeConfig", "heal failed", { message: String(e) });
+    return { healed: false, error: String(e) };
+  }
+}
+
 async function writeServerEntry() {
   const p = configPath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -109,4 +146,10 @@ async function writeServerEntry() {
   return { ok: true, path: p, note: "Restart Claude Desktop to load changes." };
 }
 
-module.exports = { getStatus, writeServerEntry, configPath, SERVER_KEY };
+module.exports = {
+  getStatus,
+  writeServerEntry,
+  healServerEntryIfStale,
+  configPath,
+  SERVER_KEY,
+};

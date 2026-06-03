@@ -65,6 +65,12 @@ function bootstrap() {
     registerIpc();
     Menu.setApplicationMenu(null); // no native menu bar; Help is an in-app button
     applyAutostartPreference();
+    // Self-heal a stale Claude config (bare "uvx" / missing path -> bundled path),
+    // so an old config can't keep causing Claude's "spawn uvx ENOENT".
+    claudeConfig
+      .healServerEntryIfStale()
+      .then((r) => r.healed && log.info("app", "claude config auto-healed", r))
+      .catch((e) => log.error("app", "config heal error", { message: String(e) }));
     createTray();
     const startHidden =
       process.argv.includes("--hidden") ||
