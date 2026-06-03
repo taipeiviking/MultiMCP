@@ -2,6 +2,11 @@ node_modules/
 dist/
 out/
 build/
+# but DO track the NSIS installer customization (source, not build output)
+!build/
+!build/installer.nsh
+build/*
+!build/installer.nsh
 *.log
 dist-build.log
 .DS_Store
