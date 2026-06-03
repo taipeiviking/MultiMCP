@@ -54,7 +54,7 @@ primed here. That's the whole trick.
 ## Installing (from a GitHub Release)
 
 1. Go to **https://github.com/taipeiviking/MultiMCP/releases/latest**
-2. Download **`Google-Workspace-Manager-Setup-0.2.3.exe`**.
+2. Download **`Google-Workspace-Manager-Setup-0.2.5.exe`**.
 3. Run it. Because the file was **downloaded from the internet**, Windows
    **SmartScreen** may show a one-time *"Windows protected your PC"* notice (this
    happens for any app without a paid code-signing certificate, signed or not).
