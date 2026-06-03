@@ -16,6 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const credentials = require("./credentials");
+const { quoteEmail, legacySafeEmail, decodeStem } = require("./emailName");
 
 const CRED_EXT = ".json";
 const NON_CREDENTIAL_STEMS = new Set(["oauth_states"]);
@@ -42,35 +43,6 @@ function readRegistry() {
 
 function writeRegistry(reg) {
   fs.writeFileSync(registryPath(), JSON.stringify(reg, null, 2), { mode: 0o600 });
-}
-
-// Mirror Python urllib.parse.quote(email, safe="@._-").
-// urllib never quotes unreserved chars (A-Z a-z 0-9 _ . - ~); we add @._-.
-function quoteEmail(email) {
-  return Array.from(email)
-    .map((ch) => {
-      if (/[A-Za-z0-9_.\-~@]/.test(ch)) return ch;
-      return Array.from(Buffer.from(ch, "utf8"))
-        .map((b) => "%" + b.toString(16).toUpperCase().padStart(2, "0"))
-        .join("");
-    })
-    .join("");
-}
-
-// Pre-URL-encoding legacy filename form (older workspace-mcp versions).
-function legacySafeEmail(email) {
-  return email.replace(/[^a-zA-Z0-9@._-]/g, "_");
-}
-
-function decodeStem(stem) {
-  if (stem.includes("%")) {
-    try {
-      return decodeURIComponent(stem);
-    } catch {
-      return stem;
-    }
-  }
-  return stem;
 }
 
 // Resolve the on-disk credential path for an email. Returns the existing file if

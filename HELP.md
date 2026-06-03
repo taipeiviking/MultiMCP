@@ -24,6 +24,7 @@ the Claude Desktop config.
 - [The ~7-day re-auth and notifications](#the-7-day-re-auth)
 - [The tray icon & background mode](#tray--background)
 - [Start with Windows](#start-with-windows)
+- [Moving to another computer (export / import)](#export-import)
 - [Status indicators](#status-indicators)
 - [Security & where things are stored](#security--storage)
 - [Troubleshooting](#troubleshooting)
@@ -53,7 +54,7 @@ primed here. That's the whole trick.
 ## Installing (from a GitHub Release)
 
 1. Go to **https://github.com/taipeiviking/MultiMCP/releases/latest**
-2. Download **`Google Workspace Manager Setup 0.1.0.exe`**.
+2. Download **`Google Workspace Manager Setup 0.2.0.exe`**.
 3. Run it. Because the file was **downloaded from the internet**, Windows
    **SmartScreen** may show a one-time *"Windows protected your PC"* notice (this
    happens for any app without a paid code-signing certificate, signed or not).
@@ -191,6 +192,39 @@ launch the app to the tray on login. It starts **hidden** (no window pops up).
 > This only takes effect in the **installed** app. In a development build the
 > setting is remembered but not registered, because a dev login item would point
 > at the raw Electron binary rather than the installed app.
+
+---
+
+<a id="export-import"></a>
+## Moving to another computer (export / import)
+
+Want the same multi-account setup on a second PC (e.g. a laptop)? You don't have to
+redo Google Cloud or sign every account in again — **export** your setup here and
+**import** it there.
+
+**On the first computer:** dashboard → **Export settings…** → choose where to save
+the `.json`. The file contains, in one place:
+- your **Client ID** and (from Credential Manager) the **client secret**,
+- your **account list**, and
+- each account's **saved sign-in** (the refresh token workspace-mcp uses).
+
+**Move the file** to the other computer (USB stick, private cloud folder, etc.).
+
+**On the second computer:** install this app, then dashboard → **Import settings…**,
+pick the file, review the summary, and choose:
+- **Import (keep existing)** — adds accounts/sign-ins that aren't already there;
+  leaves any sign-ins already on this PC untouched. *(Recommended.)*
+- **Import & overwrite** — also replaces existing token files with the ones from the
+  backup (use if the backup is newer/authoritative).
+
+Then click **Write config** and restart Claude Desktop. That's it — no re-auth needed
+as long as the tokens are still within their ~7-day window.
+
+> ⚠️ **Treat the export file like a password.** It carries your client secret and
+> live refresh tokens — anyone with the file can act as those accounts. It's written
+> with restrictive permissions; store it somewhere private and delete it when done.
+> The app keeps **this** computer's own credentials-folder path on import (paths
+> differ per machine), so nothing local is broken by importing.
 
 ---
 

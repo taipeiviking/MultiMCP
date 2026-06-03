@@ -37,4 +37,10 @@ contextBridge.exposeInMainWorld("api", {
   help: {
     open: () => ipcRenderer.invoke("help:open"),
   },
+  backup: {
+    export: () => ipcRenderer.invoke("backup:export"),
+    pick: () => ipcRenderer.invoke("backup:pick"),
+    import: (path, overwrite) =>
+      ipcRenderer.invoke("backup:import", { path, overwrite }),
+  },
 });

@@ -19,6 +19,7 @@ const {
   Menu,
   nativeImage,
   Notification,
+  dialog,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -28,6 +29,7 @@ const credentials = require("./services/credentials");
 const accounts = require("./services/accounts");
 const serverManager = require("./services/serverManager");
 const claudeConfig = require("./services/claudeConfig");
+const backup = require("./services/backup");
 const log = require("./services/logger");
 
 const isDev = !app.isPackaged;
@@ -549,5 +551,46 @@ function registerIpc() {
   handle("help:open", () => {
     shell.openExternal(HELP_URL);
     return { ok: true, url: HELP_URL };
+  });
+
+  // settings backup: export to a JSON file (carries Client ID+secret, accounts,
+  // and the per-account refresh-token files — everything the other machine needs).
+  handle("backup:export", async () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: "Export settings",
+      defaultPath: `google-workspace-manager-backup-${stamp}.json`,
+      filters: [{ name: "GWM backup", extensions: ["json"] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    try {
+      return await backup.exportToFile(filePath);
+    } catch (e) {
+      log.error("backup", "export failed", { message: String(e) });
+      return { ok: false, error: String(e) };
+    }
+  });
+
+  // settings backup: import from a JSON file. Two-step — pick + inspect, then the
+  // renderer confirms and calls backup:import with the chosen path.
+  handle("backup:pick", async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: "Import settings",
+      properties: ["openFile"],
+      filters: [{ name: "GWM backup", extensions: ["json"] }],
+    });
+    if (canceled || !filePaths || !filePaths[0]) return { ok: false, canceled: true };
+    const info = backup.inspectFile(filePaths[0]);
+    return { ...info, path: filePaths[0] };
+  });
+
+  handle("backup:import", async ({ path: filePath, overwrite }) => {
+    if (!filePath) return { ok: false, error: "No file selected." };
+    const r = await backup.importFromFile(filePath, { overwrite: !!overwrite });
+    if (r.ok) {
+      // Token files / accounts changed underneath us — refresh tray status.
+      rebuildTrayMenu();
+    }
+    return r;
   });
 }

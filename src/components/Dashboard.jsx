@@ -11,6 +11,8 @@ export default function Dashboard({ creds, onChangeCreds }) {
   const [dbg, setDbg] = useState(null);
   const [autostart, setAutostart] = useState(null); // {enabled, isDev}
   const [logView, setLogView] = useState(null); // { text, path } when viewer open
+  const [backupMsg, setBackupMsg] = useState(null); // { kind, text }
+  const [importPreview, setImportPreview] = useState(null); // { path, appVersion, exportedAt, counts }
 
   async function viewLog() {
     const r = await api.debug?.readLog();
@@ -50,6 +52,45 @@ export default function Dashboard({ creds, onChangeCreds }) {
     await api.claude.write();
     await refresh();
     setBusy(false);
+  }
+
+  async function exportSettings() {
+    setBackupMsg(null);
+    const r = await api.backup?.export();
+    if (r?.ok) {
+      const c = r.counts || {};
+      setBackupMsg({
+        kind: "ok",
+        text: `Exported ${c.accounts || 0} account(s)${c.hasSecret ? " + client secret" : ""} to ${r.path}`,
+      });
+    } else if (!r?.canceled) {
+      setBackupMsg({ kind: "err", text: "Export failed: " + (r?.error || "unknown error") });
+    }
+  }
+
+  async function pickImport() {
+    setBackupMsg(null);
+    const r = await api.backup?.pick();
+    if (r?.ok) setImportPreview(r);
+    else if (!r?.canceled) setBackupMsg({ kind: "err", text: r?.error || "Could not read that file." });
+  }
+
+  async function confirmImport(overwrite) {
+    const path = importPreview?.path;
+    setImportPreview(null);
+    if (!path) return;
+    const r = await api.backup?.import(path, overwrite);
+    if (r?.ok) {
+      setBackupMsg({
+        kind: "ok",
+        text: `Imported: ${r.accountsAdded} new account(s), ${r.credentialFilesWritten} token file(s) written${r.credentialFilesSkipped ? `, ${r.credentialFilesSkipped} skipped (already present)` : ""}${r.secretRestored ? ", client secret restored" : ""}.`,
+      });
+      await refresh();
+      // creds may now exist; nudge the parent to re-read top-level state.
+      api.credentials.get().catch(() => {});
+    } else {
+      setBackupMsg({ kind: "err", text: "Import failed: " + (r?.error || "unknown error") });
+    }
   }
 
   return (
@@ -137,6 +178,72 @@ export default function Dashboard({ creds, onChangeCreds }) {
         <button className="btn btn--small" onClick={onChangeCreds}>
           {creds?._edit ? "Hide credentials" : "Edit credentials"}
         </button>
+      </div>
+
+      <div className="diag muted small">
+        <span>
+          Move this setup to another computer — export everything (Client ID &amp;
+          Secret, accounts, and sign-in tokens) to a file, then import it there.
+        </span>
+        <div className="modal__head-actions">
+          <button className="btn btn--small" onClick={exportSettings}>
+            Export settings…
+          </button>
+          <button className="btn btn--small" onClick={pickImport}>
+            Import settings…
+          </button>
+        </div>
+      </div>
+
+      {backupMsg && (
+        <p className={`small ${backupMsg.kind === "err" ? "backup-msg--err" : "backup-msg--ok"}`}>
+          {backupMsg.text}
+        </p>
+      )}
+
+      {importPreview && (
+        <ImportConfirm
+          info={importPreview}
+          onCancel={() => setImportPreview(null)}
+          onConfirm={confirmImport}
+        />
+      )}
+    </div>
+  );
+}
+
+function ImportConfirm({ info, onCancel, onConfirm }) {
+  const c = info.counts || {};
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__head">
+          <strong>Import settings</strong>
+        </div>
+        <div className="import-body small">
+          <p className="muted">
+            This file was exported
+            {info.appVersion ? ` by app v${info.appVersion}` : ""}
+            {info.exportedAt ? ` on ${new Date(info.exportedAt).toLocaleString()}` : ""}.
+          </p>
+          <ul>
+            <li>{c.accounts || 0} account(s)</li>
+            <li>{c.credentialFiles || 0} saved sign-in(s) (refresh tokens)</li>
+            <li>{c.hasSecret ? "Includes" : "Does not include"} the OAuth client secret</li>
+          </ul>
+          <p className="muted">
+            Existing sign-ins on this computer are kept unless you choose to overwrite.
+          </p>
+        </div>
+        <div className="modal__foot import-actions">
+          <button className="btn btn--small" onClick={onCancel}>Cancel</button>
+          <button className="btn btn--small" onClick={() => onConfirm(true)} title="Replace existing token files from the backup">
+            Import &amp; overwrite
+          </button>
+          <button className="btn btn--primary btn--small" onClick={() => onConfirm(false)}>
+            Import (keep existing)
+          </button>
+        </div>
       </div>
     </div>
   );
