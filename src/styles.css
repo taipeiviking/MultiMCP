@@ -193,6 +193,8 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 .import-body ul { margin: 8px 0; padding-left: 18px; }
 .import-body li { margin: 2px 0; }
 .import-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.setup__import { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.setup__import p { margin: 0 0 8px; }
 code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
 
 .spinner {

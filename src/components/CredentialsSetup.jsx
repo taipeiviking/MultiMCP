@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import ImportSettings from "./ImportSettings.jsx";
 
 const api = window.api;
 
@@ -66,6 +67,17 @@ export default function CredentialsSetup({ creds, onSaved, editing }) {
           {busy ? "Saving…" : "Save securely"}
         </button>
       </div>
+
+      {!editing && (
+        <div className="setup__import">
+          <p className="muted small">
+            Already set this up on another computer? Bring everything over —
+            Client&nbsp;ID&nbsp;&amp;&nbsp;Secret, accounts, and sign-ins — from an
+            exported file instead of typing it again:
+          </p>
+          <ImportSettings onImported={onSaved} label="Import settings from a file…" />
+        </div>
+      )}
 
       <p className="muted small">
         Credentials dir (shared with Claude): <code>{creds?.credentialsDir}</code>

@@ -1,12 +1,13 @@
 {
   "name": "google-workspace-manager",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local control panel to connect multiple Google Workspace accounts to Claude Desktop via workspace-mcp.",
   "author": "",
   "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "dev:renderer": "vite",
     "build": "vite build",
     "dist": "npm run build && electron-builder --win nsis",
     "rebuild": "electron-builder install-app-deps"

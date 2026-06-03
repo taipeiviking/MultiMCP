@@ -54,7 +54,7 @@ primed here. That's the whole trick.
 ## Installing (from a GitHub Release)
 
 1. Go to **https://github.com/taipeiviking/MultiMCP/releases/latest**
-2. Download **`Google Workspace Manager Setup 0.2.0.exe`**.
+2. Download **`Google Workspace Manager Setup 0.2.1.exe`**.
 3. Run it. Because the file was **downloaded from the internet**, Windows
    **SmartScreen** may show a one-time *"Windows protected your PC"* notice (this
    happens for any app without a paid code-signing certificate, signed or not).
@@ -210,8 +210,11 @@ the `.json`. The file contains, in one place:
 
 **Move the file** to the other computer (USB stick, private cloud folder, etc.).
 
-**On the second computer:** install this app, then dashboard → **Import settings…**,
-pick the file, review the summary, and choose:
+**On the second computer:** install and launch this app. On the very first screen
+(*"Connect your Google OAuth client"*) click **Import settings from a file…** — you do
+**not** need to type the Client ID/Secret first; the import brings those too. (After
+setup, the same control is on the dashboard.) Pick the file, review the summary, and
+choose:
 - **Import (keep existing)** — adds accounts/sign-ins that aren't already there;
   leaves any sign-ins already on this PC untouched. *(Recommended.)*
 - **Import & overwrite** — also replaces existing token files with the ones from the
