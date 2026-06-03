@@ -70,12 +70,17 @@ export default function CredentialsSetup({ creds, onSaved, editing }) {
 
       {!editing && (
         <div className="setup__import">
+          <div className="setup__import-or"><span>or</span></div>
           <p className="muted small">
-            Already set this up on another computer? Bring everything over —
-            Client&nbsp;ID&nbsp;&amp;&nbsp;Secret, accounts, and sign-ins — from an
-            exported file instead of typing it again:
+            <strong>Already set this up on another computer?</strong> Bring everything
+            over — Client&nbsp;ID&nbsp;&amp;&nbsp;Secret, accounts, and sign-ins — from a
+            file you exported there, instead of typing it again:
           </p>
-          <ImportSettings onImported={onSaved} label="Import settings from a file…" />
+          <ImportSettings
+            onImported={onSaved}
+            label="📥 Import configuration from a file…"
+            variant="btn--primary"
+          />
         </div>
       )}
 

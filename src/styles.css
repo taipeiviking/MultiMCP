@@ -193,8 +193,12 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 .import-body ul { margin: 8px 0; padding-left: 18px; }
 .import-body li { margin: 2px 0; }
 .import-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.setup__import { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
-.setup__import p { margin: 0 0 8px; }
+.setup__import { margin-top: 20px; }
+.setup__import p { margin: 0 0 10px; }
+.setup__import-or { display: flex; align-items: center; gap: 12px; margin: 6px 0 14px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.setup__import-or::before, .setup__import-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.version-badge { position: absolute; top: 10px; right: 16px; font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--panel-2); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.topbar { position: relative; }
 code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
 
 .spinner {

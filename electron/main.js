@@ -130,7 +130,7 @@ function createWindow({ show } = { show: true }) {
     minHeight: MIN_HEIGHT,
     show: false, // shown on ready-to-show (avoids white flash) unless startHidden
     backgroundColor: "#0e1116",
-    title: "MultiMCP — Google Workspace Manager",
+    title: `MultiMCP — Google Workspace Manager  v${app.getVersion()}`,
     icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -502,8 +502,10 @@ function registerIpc() {
 
   // diagnostics
   handle("server:test", () => serverManager.testServer());
+  handle("app:version", () => app.getVersion());
   handle("debug:get", () => ({
     logPath: log.getLogPath(),
+    version: app.getVersion(),
     versions: process.versions,
     platform: process.platform,
   }));

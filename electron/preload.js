@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld("api", {
   prereqs: {
     check: () => ipcRenderer.invoke("prereq:check"),
   },
+  app: {
+    version: () => ipcRenderer.invoke("app:version"),
+  },
   accounts: {
     list: () => ipcRenderer.invoke("accounts:list"),
     add: (email) => ipcRenderer.invoke("accounts:add", { email }),

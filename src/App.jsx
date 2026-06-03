@@ -8,6 +8,7 @@ export default function App() {
   const [creds, setCreds] = useState(null);
   const [prereqs, setPrereqs] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [version, setVersion] = useState("");
 
   const refresh = useCallback(async () => {
     const [c, p] = await Promise.all([api.credentials.get(), api.prereqs.check()]);
@@ -18,6 +19,7 @@ export default function App() {
 
   useEffect(() => {
     refresh();
+    api.app?.version().then(setVersion).catch(() => {});
   }, [refresh]);
 
   if (loading) {
@@ -33,6 +35,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
+        {version && <span className="version-badge">v{version}</span>}
         <p className="brand__desc">
           Connect multiple Google Workspace accounts to Claude Desktop — sign in once,
           and Claude gets Gmail, Drive &amp; Calendar access per account. This app runs
