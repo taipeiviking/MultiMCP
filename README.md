@@ -9,10 +9,10 @@ Claude Desktop config.
 ## ⬇️ Download & install
 
 **[➤ Download the latest Windows installer](https://github.com/taipeiviking/MultiMCP/releases/latest)**
-— then run **`Google Workspace Manager Setup 0.1.0.exe`**.
+— then run **`Google Workspace Manager Setup 0.2.0.exe`**.
 
 1. On the Releases page, under **Assets**, click
-   **`Google Workspace Manager Setup 0.1.0.exe`** to download.
+   **`Google Workspace Manager Setup 0.2.0.exe`** to download.
 2. Run it. If Windows **SmartScreen** shows a one-time *"Windows protected your PC"*
    notice (normal for any app downloaded from the web without a paid code-signing
    certificate), click **More info → Run anyway**. Installs per-user; no admin needed.
@@ -22,6 +22,61 @@ Claude Desktop config.
    Claude Desktop.
 
 Full step-by-step guide: **[HELP.md](HELP.md)**.
+
+## 🔌 Connecting to Claude Desktop
+
+The whole point of this app is to wire your Google accounts into **Claude Desktop**.
+You do that from the app — you never hand-edit Claude's config.
+
+1. **Finish setup in the app first** — enter your Google OAuth **Client ID + Secret**
+   once, **Add** each account, and **Sign in** (each opens your system browser; grant
+   *all* Gmail/Drive/Calendar scopes). Cards turn 🟢 green when connected.
+2. **Click `Write config`.** The app finds Claude Desktop's
+   `claude_desktop_config.json`, **backs it up**, and **merges in** a
+   `google_workspace` MCP server entry — it writes the absolute path to `uvx` and the
+   shared credentials dir, and never touches your other MCP servers. The status strip
+   then reads **“Claude Desktop config in sync.”**
+3. **Fully quit and reopen Claude Desktop** (tray → Quit, not just close the window —
+   Claude only reads its config at startup).
+4. In a new chat, open the **connectors / tools** menu — you'll see
+   **`google_workspace`** with Gmail, Drive, and Calendar tools. Ask e.g.
+   *“search my Gmail for …”* and Claude will use the account(s) you primed.
+
+> **You don't need to keep this app open.** Claude Desktop launches its **own**
+> `uvx workspace-mcp` per chat session, pointed at the same shared credentials dir,
+> so it reuses the sign-ins you primed here. The tray app exists to do the sign-ins,
+> write the config, and warn you before Google's ~7-day token expiry.
+
+**What the entry looks like** (written for you — shown for reference):
+```jsonc
+// in %APPDATA%\Claude\claude_desktop_config.json
+{
+  "mcpServers": {
+    "google_workspace": {
+      "command": "C:\\Users\\you\\.local\\bin\\uvx.exe",
+      "args": ["workspace-mcp", "--tools", "gmail", "drive", "calendar"],
+      "env": { "GOOGLE_MCP_CREDENTIALS_DIR": "C:\\Users\\you\\.google_workspace_mcp\\credentials", "...": "..." }
+    }
+  }
+}
+```
+
+If Claude doesn't show the tools: confirm the strip says **in sync**, then **fully
+quit** Claude from its tray icon and reopen. See
+[Troubleshooting](HELP.md#troubleshooting) in HELP.md.
+
+## 💻 Use it on a second computer (export / import)
+
+Already set up on one PC and want the same accounts on a laptop? You don't have to
+redo Google Cloud or re-sign every account:
+
+1. On the first PC: **Export settings…** (dashboard) → save the `.json`. It carries
+   your Client ID + secret, account list, and each account's saved sign-in.
+2. Move the file to the other PC, install this app there, then **Import settings…**.
+3. Click **Write config** and restart Claude Desktop.
+
+> ⚠️ The export file contains your client secret and live tokens — treat it like a
+> password and delete it when done. Details: [HELP.md](HELP.md#export-import).
 
 > **Status: complete and shipping.** Verified live end-to-end against `workspace-mcp`
 > (Gmail/Drive/Calendar read for a real account through Claude Desktop), runs as a
