@@ -22,6 +22,7 @@ the Claude Desktop config.
 - [Adding & signing in an account](#adding--signing-in-an-account)
 - [Writing the Claude Desktop config](#writing-the-claude-desktop-config)
 - [The ~7-day re-auth and notifications](#the-7-day-re-auth)
+- [Make sign-ins long-lived (stop the 7-day re-auth)](#long-lived)
 - [The tray icon & background mode](#tray--background)
 - [Start with Windows](#start-with-windows)
 - [Moving to another computer (export / import)](#export-import)
@@ -168,6 +169,53 @@ This app's job is to make re-auth **one click** and **warn you before** it
 happens: it checks periodically and shows a Windows notification when an account
 is expired or within ~48 hours of its re-auth deadline. Click the notification to
 open the dashboard, then click **Re-auth**.
+
+> **Tired of the weekly re-auth?** You can stop the 7-day clock by switching your
+> OAuth app from *Testing* to *Production* — see
+> [Make sign-ins long-lived](#long-lived) below.
+
+---
+
+<a id="long-lived"></a>
+## Make sign-ins long-lived (stop the 7-day re-auth)
+
+The ~7-day expiry is **only** because your Google OAuth app is in **"Testing"**.
+Switching it to **"In production"** removes the weekly refresh-token expiry — this
+is a **Google Cloud Console setting, not an app setting**, and it's free and instant.
+
+### Step 1 — Publish the app to production
+In the [Google Cloud Console](https://console.cloud.google.com/) with your project
+(e.g. *Claude Connector*) selected:
+
+1. Go to **APIs & Services → OAuth consent screen** (in the newer console this is
+   **Google Auth Platform → Audience**).
+2. Under **Publishing status** you'll see **Testing**. Click **Publish app**, then
+   confirm **Push to production**.
+3. The status changes to **In production**. That's it — the 7-day clock is off.
+
+### Step 2 — Re-auth each account once
+Tokens already issued *under Testing* keep their 7-day expiry; publishing doesn't
+fix them retroactively. So after publishing, click **Re-auth** on each account in
+the app **once**. The token minted *after* publishing is the long-lived one, and
+the dashboard countdown will stop resetting weekly.
+
+### What this does NOT change
+- **You'll still see "Google hasn't verified this app"** at sign-in (the
+  *Advanced → Go to … (unsafe)* screen). That's expected for an unverified app and
+  is harmless — it's your own app. Removing **that** warning requires full **Google
+  verification** (verified domain, privacy-policy + homepage URLs, app logo, and —
+  because Gmail/Drive are *restricted* scopes — an **annual third-party CASA
+  security assessment**). That's heavy and usually unnecessary for personal/team use.
+
+### Tokens can still expire (rare)
+Even in production a refresh token is invalidated if: the account **password
+changes**, the user **revokes access** (myaccount.google.com → Security → Third-party
+access), the token is **unused for 6 months**, or you exceed Google's per-user token
+limit. These are occasional, not the weekly grind of Testing mode.
+
+> **TL;DR:** Console → OAuth consent screen → **Publish app** → then **Re-auth** each
+> account once. No more weekly re-auth. The "unverified app" click-through stays
+> unless you complete Google verification.
 
 ---
 

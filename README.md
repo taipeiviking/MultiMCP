@@ -128,7 +128,9 @@ within Google's ~7-day window, no re-auth is needed; if one is stale, just click
   token window.
 - Writes/merges the `google_workspace` entry into `claude_desktop_config.json`
   (backs up first; never clobbers other MCP servers).
-- One-click **Re-auth** (the routine answer to the ~7-day expiry).
+- One-click **Re-auth** (the routine answer to the ~7-day expiry). To stop the
+  weekly re-auth entirely, publish your OAuth app to production — see
+  [Make sign-ins long-lived](HELP.md#long-lived).
 - Runs in the **system tray**: closing the window hides it; a periodic check fires
   a native notification before an account goes stale. Optional **Start with
   Windows**. In-app **View log** viewer for diagnostics.
