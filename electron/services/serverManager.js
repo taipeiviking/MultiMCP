@@ -430,4 +430,5 @@ module.exports = {
   authorizeAccount,
   testServer,
   stopAll,
+  SIGNIN_PORT,
 };

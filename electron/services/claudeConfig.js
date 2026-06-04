@@ -52,6 +52,13 @@ async function buildEntry() {
     GOOGLE_OAUTH_CLIENT_ID: clientId,
     GOOGLE_MCP_CREDENTIALS_DIR: credentialsDir,
     OAUTHLIB_INSECURE_TRANSPORT: "1",
+    // PIN the OAuth callback port. Without this, newer workspace-mcp versions pick
+    // their own port when Claude launches the server (e.g. 8002 if 8000 is busy),
+    // producing a redirect_uri that doesn't match the one registered on the OAuth
+    // client -> "Error 400: redirect_uri_mismatch". The registered redirect URI is
+    // http://localhost:8000/oauth2callback, so we force 8000 here too.
+    WORKSPACE_MCP_PORT: String(serverManager.SIGNIN_PORT),
+    WORKSPACE_MCP_BASE_URI: "http://localhost",
   };
   if (injectSecret) {
     env.GOOGLE_OAUTH_CLIENT_SECRET = clientSecret || "";
@@ -78,11 +85,12 @@ async function getStatus() {
   return { present: !!existing, inSync, path: configPath() };
 }
 
-// Self-heal a stale config at startup. An OLDER app version (or a config written
-// before uv was bundled) may have a google_workspace.command of bare "uvx" or an
-// absolute path that no longer exists — both cause Claude's "spawn uvx ENOENT".
-// If we detect that AND we have a valid (bundled) uvx now, rewrite the entry so the
-// user doesn't have to remember to click "Write config" again.
+// Self-heal a stale config at startup. Rewrites the google_workspace entry when:
+//   (a) command is bare "uvx" or an absolute path that no longer exists
+//       -> Claude's "spawn uvx ENOENT"; OR
+//   (b) the env is missing WORKSPACE_MCP_PORT -> newer workspace-mcp picks its own
+//       callback port (e.g. 8002), causing "Error 400: redirect_uri_mismatch".
+// So an existing install fixes itself on launch without a manual "Write config".
 async function healServerEntryIfStale() {
   try {
     const cfg = readConfig();
@@ -92,23 +100,29 @@ async function healServerEntryIfStale() {
     const cmd = existing.command;
     const isBare = !cmd || !path.isAbsolute(cmd); // "uvx" (no path) can't be found by Claude
     const missing = cmd && path.isAbsolute(cmd) && !fs.existsSync(cmd);
-    if (!isBare && !missing) return { healed: false, reason: "command ok" };
+    const wantPort = String(serverManager.SIGNIN_PORT);
+    const portMissing = !existing.env || existing.env.WORKSPACE_MCP_PORT !== wantPort;
 
-    // Only heal if we can resolve a real uvx now (prefer bundled).
+    if (!isBare && !missing && !portMissing) {
+      return { healed: false, reason: "entry ok" };
+    }
+
+    // Need a valid uvx to write a usable entry (prefer bundled).
     const good = await serverManager.resolveUvxPath();
     if (!good || !fs.existsSync(good)) {
-      log.warn("claudeConfig", "stale command but no valid uvx to heal with", { cmd });
+      log.warn("claudeConfig", "stale entry but no valid uvx to heal with", { cmd });
       return { healed: false, reason: "no valid uvx" };
     }
-    if (good === cmd) return { healed: false, reason: "already good" };
 
+    const reason = isBare ? "bare command" : missing ? "missing file" : "missing port";
     await writeServerEntry();
-    log.info("claudeConfig", "Healed stale Claude config command", {
+    log.info("claudeConfig", "Healed stale Claude config", {
       was: cmd,
       now: good,
-      reason: isBare ? "bare command" : "missing file",
+      portMissing,
+      reason,
     });
-    return { healed: true, was: cmd, now: good };
+    return { healed: true, was: cmd, now: good, reason };
   } catch (e) {
     log.error("claudeConfig", "heal failed", { message: String(e) });
     return { healed: false, error: String(e) };
