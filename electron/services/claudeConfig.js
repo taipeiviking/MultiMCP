@@ -10,6 +10,17 @@ const log = require("./logger");
 
 const SERVER_KEY = "google_workspace";
 
+// Claude's BACKGROUND server gets its OWN port, separate from the tray app's
+// interactive sign-in port (serverManager.SIGNIN_PORT = 8000). Why: both the tray
+// app's sign-in and Claude's persistent server start a "minimal OAuth server" on a
+// port. If both want 8000, whichever starts second falls back to 8002 — and an
+// interactive sign-in on 8002 fails with redirect_uri_mismatch (only :8000 is
+// registered). By pinning Claude's server to 9000, port 8000 stays FREE for the
+// tray app's sign-in, so the consent redirect always uses the registered :8000.
+// Claude's server never does an interactive consent (it refreshes tokens directly),
+// so its port does not need to be registered as a redirect URI.
+const CLAUDE_MCP_PORT = 9000;
+
 function configPath() {
   // Windows: %APPDATA%\Claude\claude_desktop_config.json
   // (macOS path included for dev convenience.)
@@ -52,12 +63,9 @@ async function buildEntry() {
     GOOGLE_OAUTH_CLIENT_ID: clientId,
     GOOGLE_MCP_CREDENTIALS_DIR: credentialsDir,
     OAUTHLIB_INSECURE_TRANSPORT: "1",
-    // PIN the OAuth callback port. Without this, newer workspace-mcp versions pick
-    // their own port when Claude launches the server (e.g. 8002 if 8000 is busy),
-    // producing a redirect_uri that doesn't match the one registered on the OAuth
-    // client -> "Error 400: redirect_uri_mismatch". The registered redirect URI is
-    // http://localhost:8000/oauth2callback, so we force 8000 here too.
-    WORKSPACE_MCP_PORT: String(serverManager.SIGNIN_PORT),
+    // Pin Claude's background server to its OWN port (not the tray app's 8000), so
+    // the two never contend for 8000. See CLAUDE_MCP_PORT note above.
+    WORKSPACE_MCP_PORT: String(CLAUDE_MCP_PORT),
     WORKSPACE_MCP_BASE_URI: "http://localhost",
   };
   if (injectSecret) {
@@ -100,10 +108,13 @@ async function healServerEntryIfStale() {
     const cmd = existing.command;
     const isBare = !cmd || !path.isAbsolute(cmd); // "uvx" (no path) can't be found by Claude
     const missing = cmd && path.isAbsolute(cmd) && !fs.existsSync(cmd);
-    const wantPort = String(serverManager.SIGNIN_PORT);
-    const portMissing = !existing.env || existing.env.WORKSPACE_MCP_PORT !== wantPort;
+    // Claude's server must be pinned to CLAUDE_MCP_PORT (9000), NOT 8000 — a config
+    // from an older build (or no port / the wrong 8000 pin) needs rewriting so it
+    // stops contending with the tray app's sign-in on 8000.
+    const wantPort = String(CLAUDE_MCP_PORT);
+    const portWrong = !existing.env || existing.env.WORKSPACE_MCP_PORT !== wantPort;
 
-    if (!isBare && !missing && !portMissing) {
+    if (!isBare && !missing && !portWrong) {
       return { healed: false, reason: "entry ok" };
     }
 
@@ -114,12 +125,12 @@ async function healServerEntryIfStale() {
       return { healed: false, reason: "no valid uvx" };
     }
 
-    const reason = isBare ? "bare command" : missing ? "missing file" : "missing port";
+    const reason = isBare ? "bare command" : missing ? "missing file" : "wrong port";
     await writeServerEntry();
     log.info("claudeConfig", "Healed stale Claude config", {
       was: cmd,
       now: good,
-      portMissing,
+      portWrong,
       reason,
     });
     return { healed: true, was: cmd, now: good, reason };

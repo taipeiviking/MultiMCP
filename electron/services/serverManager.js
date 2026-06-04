@@ -204,6 +204,21 @@ function extractAuthUrl(toolResult) {
   }
 }
 
+// Is a TCP port free to bind on localhost? (Used to guarantee the interactive
+// sign-in gets the REGISTERED port 8000 — if it's occupied, workspace-mcp would
+// silently fall back to 8001/8002, whose redirect URI isn't registered, causing
+// redirect_uri_mismatch. Better to detect and tell the user.)
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const net = require("net");
+    const srv = net
+      .createServer()
+      .once("error", () => resolve(false))
+      .once("listening", () => srv.close(() => resolve(true)))
+      .listen(port, "127.0.0.1");
+  });
+}
+
 // Launch a transient stdio MCP instance and drive Google consent for ONE account.
 // Resolves once a fresh credential file is observed, or with pending=true on timeout.
 async function authorizeAccount(email) {
@@ -216,6 +231,26 @@ async function authorizeAccount(email) {
   }
   if (!env.GOOGLE_OAUTH_CLIENT_SECRET) {
     return { ok: false, error: "Set the OAuth Client Secret first." };
+  }
+
+  // The interactive sign-in MUST use the registered redirect port (SIGNIN_PORT).
+  // If something else holds it, workspace-mcp falls back to an unregistered port
+  // and Google returns redirect_uri_mismatch. Stop our own leftovers, then verify.
+  await stopAll();
+  if (!(await isPortFree(SIGNIN_PORT))) {
+    // give a just-killed child a beat to release the socket, then re-check
+    await sleep(700);
+  }
+  if (!(await isPortFree(SIGNIN_PORT))) {
+    log.warn("authorize", "sign-in port busy", { port: SIGNIN_PORT });
+    return {
+      ok: false,
+      error:
+        `Port ${SIGNIN_PORT} is in use, so sign-in can't use the registered ` +
+        `redirect URI (http://localhost:${SIGNIN_PORT}/oauth2callback). Close whatever ` +
+        `is using port ${SIGNIN_PORT} and try again. (Claude Desktop's own server now ` +
+        `uses a different port, so this is usually another app.)`,
+    };
   }
 
   const dir = credentials.credentialsDir();
@@ -236,7 +271,7 @@ async function authorizeAccount(email) {
     port: SIGNIN_PORT,
   });
 
-  await stopAll();
+  // (stopAll + port-free check already done above before this point)
   signinProc = spawn(
     uvx,
     ["workspace-mcp", "--tools", "gmail", "drive", "calendar"],
