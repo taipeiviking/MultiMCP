@@ -23,6 +23,7 @@ Claude Desktop config.
 
 Full step-by-step guide: **[HELP.md](HELP.md)**. Adding more Google accounts (illustrated
 walkthrough, incl. getting out of Testing mode): **[docs/ADD_ACCOUNT.md](docs/ADD_ACCOUNT.md)**.
+What changed in each version: **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## 🔌 Connecting to Claude Desktop
 
