@@ -2,16 +2,39 @@ import React, { useState } from "react";
 
 const api = window.api;
 
+function timeAgo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!isFinite(ms) || ms < 0) return "just now";
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 function expiryLabel(account) {
   if (!account.connected) return "not connected";
   if (!account.hasRefresh) return "needs re-auth (no refresh token)";
-  if (account.expired) return "re-auth needed";
-  if (!account.expiry) return "connected";
-  const ms = new Date(account.expiry).getTime() - Date.now();
-  if (ms <= 0) return "re-auth needed";
-  const days = Math.floor(ms / 86400000);
-  const hours = Math.floor((ms % 86400000) / 3600000);
-  return days > 0 ? `re-auth in ${days}d ${hours}h` : `re-auth in ${hours}h`;
+  if (account.expired) {
+    return account.verifyStatus === "invalid_grant"
+      ? "re-auth needed — Google rejected the saved sign-in"
+      : "re-auth needed";
+  }
+  // Alive. Prefer the empirically-verified status over any clock.
+  if (account.verifyOk && account.verifiedAt) {
+    return `connected ✓ · verified ${timeAgo(account.verifiedAt)}`;
+  }
+  if (account.productionMode) return "connected ✓";
+  if (account.expiry) {
+    const ms = new Date(account.expiry).getTime() - Date.now();
+    if (ms <= 0) return "re-auth needed";
+    const days = Math.floor(ms / 86400000);
+    const hours = Math.floor((ms % 86400000) / 3600000);
+    const base = days > 0 ? `re-auth in ${days}d ${hours}h` : `re-auth in ${hours}h`;
+    return `${base} · Testing mode`;
+  }
+  return "connected";
 }
 
 export default function AccountCard({ account, onChanged }) {

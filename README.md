@@ -9,10 +9,10 @@ Claude Desktop config.
 ## ⬇️ Download & install
 
 **[➤ Download the latest Windows installer](https://github.com/taipeiviking/MultiMCP/releases/latest)**
-— then run **`Google-Workspace-Manager-Setup-0.3.4.exe`**.
+— then run **`Google-Workspace-Manager-Setup-0.3.5.exe`**.
 
 1. On the Releases page, under **Assets**, click
-   **`Google-Workspace-Manager-Setup-0.3.4.exe`** to download.
+   **`Google-Workspace-Manager-Setup-0.3.5.exe`** to download.
 2. Run it. If Windows **SmartScreen** shows a one-time *"Windows protected your PC"*
    notice (normal for any app downloaded from the web without a paid code-signing
    certificate), click **More info → Run anyway**. Installs per-user; no admin needed.
@@ -21,7 +21,8 @@ Claude Desktop config.
    another computer), add each account and **Sign in**, click **Write config**, and
    restart Claude Desktop.
 
-Full step-by-step guide: **[HELP.md](HELP.md)**.
+Full step-by-step guide: **[HELP.md](HELP.md)**. Adding more Google accounts (illustrated
+walkthrough, incl. getting out of Testing mode): **[docs/ADD_ACCOUNT.md](docs/ADD_ACCOUNT.md)**.
 
 ## 🔌 Connecting to Claude Desktop
 
@@ -62,7 +63,9 @@ You do that from the app — you never hand-edit Claude's config.
 ```
 
 If Claude doesn't show the tools: confirm the strip says **in sync**, then **fully
-quit** Claude from its tray icon and reopen. See
+quit** Claude from its tray icon and reopen. A one-time **"Could not attach to MCP
+server"** right after a `workspace-mcp` update is a cold-start timeout — the app
+pre-warms the engine in the background, and reopening Claude once more resolves it. See
 [Troubleshooting](HELP.md#troubleshooting) in HELP.md.
 
 ## 💻 Use it on a second computer (export / import)
@@ -124,12 +127,15 @@ within Google's ~7-day window, no re-auth is needed; if one is stale, just click
 - Stores your **one** Google OAuth Client ID/Secret securely (Windows Credential
   Manager). The same client is shared by all accounts — it is not per-account.
 - Adds your accounts and runs a one-click **system-browser** sign-in for each.
-- Shows per-account status + a re-auth countdown for Google's ~7-day Testing-mode
-  token window.
+- Shows per-account status **verified live against Google** — a real token refresh on
+  launch, every 6h, and via a **Check now** button — so it reflects reality, not a
+  fixed clock. Shows "connected ✓ · verified Xm ago" when healthy and "re-auth needed"
+  only when Google actually rejects a token.
 - Writes/merges the `google_workspace` entry into `claude_desktop_config.json`
   (backs up first; never clobbers other MCP servers).
-- One-click **Re-auth** (the routine answer to the ~7-day expiry). To stop the
-  weekly re-auth entirely, publish your OAuth app to production — see
+- One-click **Re-auth** for any account. In **Testing** mode it shows the ~7-day
+  countdown; tick **"OAuth app published to production"** (or let it auto-detect once a
+  token outlives 7 days) to drop the countdown — see
   [Make sign-ins long-lived](HELP.md#long-lived).
 - Runs in the **system tray**: closing the window hides it; a periodic check fires
   a native notification before an account goes stale. Optional **Start with
@@ -171,11 +177,17 @@ npm run dist      # vite build + electron-builder -> NSIS installer in /dist
 Notes:
 - `keytar` is a native module; it ships unpacked from the asar
   (`asarUnpack` in package.json) so it loads at runtime.
-- First-ever package on a machine may need an **elevated** shell so electron-builder
-  can extract its winCodeSign cache (Windows symlink privilege). Use
-  `scripts/dist-build.ps1` from an Administrator PowerShell if `npm run dist` hits
-  "A required privilege is not held by the client". Stop any running dev/app
-  instance first (it locks `keytar.node`).
+- First-ever package on a machine can hit "A required privilege is not held by the
+  client" when electron-builder extracts its **winCodeSign** cache — that archive
+  contains macOS `.dylib` **symlinks** Windows won't create without Developer Mode or
+  admin. We don't code-sign, so the macOS files are unused; two fixes: (a) run
+  `scripts/dist-build.ps1` from an **Administrator** PowerShell, **or** (b) pre-extract
+  the cache **without** the macOS tree (no admin needed) and re-run `npm run dist`:
+  ```powershell
+  $c = "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign"
+  & node_modules\7zip-bin\win\x64\7za.exe x (Get-ChildItem $c -Filter *.7z)[0].FullName -o"$c\winCodeSign-2.6.0" -xr!darwin -y
+  ```
+  Stop any running dev/app instance first (it locks `keytar.node`).
 
 ## Project layout
 ```

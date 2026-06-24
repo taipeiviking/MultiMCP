@@ -13,6 +13,8 @@ export default function Dashboard({ creds, onChangeCreds }) {
   const [autostart, setAutostart] = useState(null); // {enabled, isDev}
   const [logView, setLogView] = useState(null); // { text, path } when viewer open
   const [backupMsg, setBackupMsg] = useState(null); // { kind, text } (export only)
+  const [prefs, setPrefs] = useState(null); // { productionMode, productionModeSource }
+  const [checking, setChecking] = useState(false);
 
   async function viewLog() {
     const r = await api.debug?.readLog();
@@ -29,11 +31,32 @@ export default function Dashboard({ creds, onChangeCreds }) {
   useEffect(() => {
     api.debug?.get().then(setDbg).catch(() => {});
     api.autostart?.get().then(setAutostart).catch(() => {});
+    api.prefs?.get().then(setPrefs).catch(() => {});
   }, []);
 
   async function toggleAutostart(e) {
     const res = await api.autostart.set(e.target.checked);
     setAutostart(res);
+  }
+
+  async function checkNow() {
+    setChecking(true);
+    try {
+      const a = await api.accounts.verify();
+      if (Array.isArray(a)) setAccounts(a);
+    } catch {
+      /* leave prior status in place */
+    } finally {
+      setChecking(false);
+    }
+    refresh();
+  }
+
+  async function toggleProduction(e) {
+    const res = await api.prefs.set(e.target.checked);
+    setPrefs(res);
+    // Re-verify so the labels switch to the new mode immediately.
+    checkNow();
   }
 
   useEffect(() => {
@@ -77,13 +100,23 @@ export default function Dashboard({ creds, onChangeCreds }) {
     <div className="dash">
       <div className="dash__head">
         <h1>Accounts</h1>
-        <button
-          className="btn btn--ghost btn--small"
-          onClick={() => api.help?.open()}
-          title="Open the online help page"
-        >
-          ? Help
-        </button>
+        <div className="modal__head-actions">
+          <button
+            className="btn btn--ghost btn--small"
+            onClick={checkNow}
+            disabled={checking}
+            title="Verify every account's sign-in against Google right now"
+          >
+            {checking ? "Checking…" : "Check now"}
+          </button>
+          <button
+            className="btn btn--ghost btn--small"
+            onClick={() => api.help?.open()}
+            title="Open the online help page"
+          >
+            ? Help
+          </button>
+        </div>
       </div>
 
       <div className="add-row">
@@ -110,10 +143,33 @@ export default function Dashboard({ creds, onChangeCreds }) {
 
       <ClaudeStrip claude={claude} busy={busy} onWrite={writeClaude} />
 
-      <p className="muted small note">
-        Heads-up: while the Google app is in “Testing”, tokens expire about every 7 days —
-        the app runs in the tray and will warn you before an account goes stale.
-      </p>
+      {prefs?.productionMode ? (
+        <p className="muted small note">
+          Production mode: sign-ins don’t expire on a 7-day clock. The app verifies each
+          account against Google (on launch, every 6h, and via “Check now”) and warns you
+          only if a sign-in is actually revoked or fails.
+        </p>
+      ) : (
+        <p className="muted small note">
+          Heads-up: while the Google app is in “Testing”, tokens expire about every 7 days.
+          The app verifies each account against Google and counts down only until then —
+          tick the box below once your OAuth consent screen is published to production.
+        </p>
+      )}
+
+      <label className="diag muted small toggle-row">
+        <input
+          type="checkbox"
+          checked={!!prefs?.productionMode}
+          onChange={toggleProduction}
+        />
+        <span>
+          OAuth app published to “In production” (no 7-day token expiry)
+          {prefs?.productionModeSource === "auto" && (
+            <em className="muted"> — detected automatically</em>
+          )}
+        </span>
+      </label>
 
       {autostart && (
         <label className="diag muted small toggle-row">

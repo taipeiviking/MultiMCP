@@ -55,7 +55,7 @@ primed here. That's the whole trick.
 ## Installing (from a GitHub Release)
 
 1. Go to **https://github.com/taipeiviking/MultiMCP/releases/latest**
-2. Download **`Google-Workspace-Manager-Setup-0.3.4.exe`**.
+2. Download **`Google-Workspace-Manager-Setup-0.3.5.exe`**.
 3. Run it. Because the file was **downloaded from the internet**, Windows
    **SmartScreen** may show a one-time *"Windows protected your PC"* notice (this
    happens for any app without a paid code-signing certificate, signed or not).
@@ -120,6 +120,9 @@ In the [Google Cloud Console](https://console.cloud.google.com/):
 <a id="adding--signing-in-an-account"></a>
 ## Adding & signing in an account
 
+> 📖 Prefer a fuller, illustrated walkthrough (including how to get out of Testing mode
+> for long-lived sign-ins)? See **[docs/ADD_ACCOUNT.md](docs/ADD_ACCOUNT.md)**.
+
 1. Type the email in the **add account** box and click **Add**. A grey
    *not connected* card appears.
 2. Click **Sign in**. Your **system browser** opens automatically to Google.
@@ -162,17 +165,20 @@ under Connectors / tools.
 
 While your Google OAuth app is in **"Testing"** status, Google expires refresh
 tokens about **every 7 days**. This is a Google policy, not a bug — removing it
-requires publishing the app and passing Google's verification (heavy for Gmail/
-Drive scopes).
+requires publishing the app (see [Make sign-ins long-lived](#long-lived) below).
 
-This app's job is to make re-auth **one click** and **warn you before** it
-happens: it checks periodically and shows a Windows notification when an account
-is expired or within ~48 hours of its re-auth deadline. Click the notification to
-open the dashboard, then click **Re-auth**.
+**The app verifies each account live against Google** — a real token refresh on
+launch, every 6 hours, and whenever you click **Check now** (top-right of the
+Accounts screen). So the status reflects reality, not a fixed countdown:
 
-> **Tired of the weekly re-auth?** You can stop the 7-day clock by switching your
-> OAuth app from *Testing* to *Production* — see
-> [Make sign-ins long-lived](#long-lived) below.
+- **connected ✓ · verified Xm ago** — the token is confirmed working right now.
+- **re-auth needed** — Google actually rejected the saved sign-in; click **Re-auth**.
+
+In **Testing** mode the card also shows the ~7-day countdown as a heads-up, and the
+app fires a Windows notification when an account is expired or within ~48 hours of
+its deadline (click it to open the dashboard, then **Re-auth**). Once you're in
+**Production** (next section) the countdown disappears — the app simply keeps
+verifying and warns you only if a sign-in genuinely fails.
 
 ---
 
@@ -196,8 +202,15 @@ In the [Google Cloud Console](https://console.cloud.google.com/) with your proje
 ### Step 2 — Re-auth each account once
 Tokens already issued *under Testing* keep their 7-day expiry; publishing doesn't
 fix them retroactively. So after publishing, click **Re-auth** on each account in
-the app **once**. The token minted *after* publishing is the long-lived one, and
-the dashboard countdown will stop resetting weekly.
+the app **once**. The token minted *after* publishing is the long-lived one.
+
+### Step 3 — Tell the app you're in production
+On the dashboard, tick **"OAuth app published to production (no 7-day token
+expiry)"**. This hides the 7-day countdown immediately and switches every card to
+the live **"connected ✓ · verified …"** status. (If you forget, the app
+**auto-detects** production anyway once a token keeps working past 7 days, and ticks
+the box for you.) You can press **Check now** at any time to re-verify every account
+on the spot.
 
 ### What this does NOT change
 - **You'll still see "Google hasn't verified this app"** at sign-in (the
@@ -284,11 +297,13 @@ as long as the tokens are still within their ~7-day window.
 
 | Indicator | Meaning |
 |---|---|
-| 🟢 green dot + "re-auth in Nd Nh" | Connected; token valid, countdown to the 7-day re-auth |
-| 🟠 "re-auth needed" / "needs re-auth" | Token expired or missing a refresh token — click **Re-auth** |
+| 🟢 green dot + "connected ✓ · verified Xm ago" | Live-verified against Google just now — the token works |
+| 🟢 green dot + "re-auth in Nd Nh · Testing mode" | Connected; Testing-mode 7-day countdown (shown until verified or you enable production) |
+| 🟠 "re-auth needed" | Google rejected the saved sign-in, or it expired — click **Re-auth** |
+| 🟠 "needs re-auth (no refresh token)" | The cached sign-in has no refresh token — click **Re-auth** |
 | ⚪ grey dot + "not connected" | Account added but never signed in |
-| `uvx ready` (green) | `uvx` was found on PATH |
-| `uvx missing` (amber) | Install `uv` (see Prerequisites) |
+| `Engine ready (bundled)` (green) | the bundled `uvx` engine runs |
+| `Engine missing` (amber) | Install `uv` (see Prerequisites) |
 | Claude config **in sync** / **out of date** / **not written** | State of your `claude_desktop_config.json` |
 
 ---
@@ -332,6 +347,12 @@ few minutes to propagate.
 **Claude can't see the tools** — confirm the config is **in sync**, then **fully
 quit** Claude Desktop (tray → Quit) and reopen. Check Claude's own logs at
 `%APPDATA%\Claude\logs\`.
+
+**"Could not attach to MCP server google_workspace"** — a cold-start timeout: the first
+time a new `workspace-mcp` version runs, `uvx` installs it (~90 packages), which can
+exceed Claude's attach timeout. The tray app **pre-warms** this in the background (on
+launch + every 6h), so keep it running. If you still see it, **reopen Claude once
+more** — the first (failed) attach finishes the install, so the next attach is fast.
 
 **Port 8000 in use** — another process is using the OAuth callback port. Close it
 and retry the sign-in.

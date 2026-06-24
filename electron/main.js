@@ -76,6 +76,9 @@ function bootstrap() {
       process.argv.includes("--hidden") ||
       app.getLoginItemSettings().wasOpenedAtLogin;
     createWindow({ show: !startHidden });
+    // Warm the uvx/workspace-mcp cache so Claude Desktop's own server attaches fast
+    // (a cold install of a new workspace-mcp version can exceed Claude's MCP timeout).
+    serverManager.prewarm();
     scheduleExpiryChecks();
 
     app.on("activate", () => showWindow());
@@ -400,7 +403,17 @@ function scheduleExpiryChecks() {
   expiryTimer = setInterval(() => checkExpiries(false), EXPIRY_CHECK_INTERVAL_MS);
 }
 
-function checkExpiries(manual) {
+async function checkExpiries(manual) {
+  // Keep the uvx/workspace-mcp cache warm (runs ~8s after launch, then every 6h) so a
+  // workspace-mcp version bump installs in the background here — not during Claude's
+  // attach, which would time out ("Could not attach to MCP server"). Non-blocking.
+  serverManager.prewarm();
+  // Verify refresh tokens against Google so status reflects reality, not a clock.
+  try {
+    await accounts.verifyAll();
+  } catch (e) {
+    log.error("expiry", "verifyAll failed", { message: String(e) });
+  }
   let list = [];
   try {
     list = accounts.listAccounts();
@@ -498,8 +511,42 @@ function registerIpc() {
   handle("accounts:remove", ({ email }) => accounts.removeAccount(email));
   handle("accounts:authorize", async ({ email }) => {
     const r = await serverManager.authorizeAccount(email);
+    // Confirm the just-issued token actually works (and refresh stored status).
+    try {
+      await accounts.verifyAccount(email);
+    } catch (e) {
+      log.warn("ipc", "post-authorize verify failed", { message: String(e) });
+    }
     rebuildTrayMenu(); // status may have changed
     return r;
+  });
+
+  handle("accounts:verify", async () => {
+    const list = await accounts.verifyAll();
+    rebuildTrayMenu();
+    return list;
+  });
+
+  // production-mode preference (drops the 7-day countdown; status is verify-driven)
+  handle("prefs:get", () => {
+    const s = credentials.readSettings();
+    return {
+      productionMode: s.productionMode === true,
+      productionModeSource: s.productionModeSource || null,
+    };
+  });
+  handle("prefs:set", ({ productionMode }) => {
+    const patch = {};
+    if (typeof productionMode === "boolean") {
+      patch.productionMode = productionMode;
+      patch.productionModeSource = productionMode ? "user" : null;
+    }
+    const s = credentials.patchSettings(patch);
+    rebuildTrayMenu();
+    return {
+      productionMode: s.productionMode === true,
+      productionModeSource: s.productionModeSource || null,
+    };
   });
 
   // claude config

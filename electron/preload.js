@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("api", {
     add: (email) => ipcRenderer.invoke("accounts:add", { email }),
     remove: (email) => ipcRenderer.invoke("accounts:remove", { email }),
     authorize: (email) => ipcRenderer.invoke("accounts:authorize", { email }),
+    verify: () => ipcRenderer.invoke("accounts:verify"),
   },
   claude: {
     status: () => ipcRenderer.invoke("claude:status"),
@@ -36,6 +37,10 @@ contextBridge.exposeInMainWorld("api", {
   autostart: {
     get: () => ipcRenderer.invoke("autostart:get"),
     set: (enabled) => ipcRenderer.invoke("autostart:set", { enabled }),
+  },
+  prefs: {
+    get: () => ipcRenderer.invoke("prefs:get"),
+    set: (productionMode) => ipcRenderer.invoke("prefs:set", { productionMode }),
   },
   help: {
     open: () => ipcRenderer.invoke("help:open"),

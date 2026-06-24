@@ -5,6 +5,14 @@
 > Calendar through Claude Desktop). Runs as a background tray app with expiry
 > notifications and autostart; packages to a Windows NSIS installer. §8 documents the
 > UI as built. See HELP.md for the end-user guide.
+>
+> **v0.3.5** — re-auth status is now driven by a **live refresh-token check** against
+> Google (not a fixed 7-day guess), plus a `productionMode` flag (manual checkbox +
+> auto-learn) that drops the countdown. Multi-account remains fully supported (one
+> shared credentials dir + one server entry; Claude selects the account per request).
+> It also **pre-warms the uvx/workspace-mcp cache** (on launch + every 6h) so a
+> workspace-mcp version bump installs in the background rather than timing out Claude's
+> MCP attach ("Could not attach to MCP server google_workspace").
 
 ## 1. Purpose
 
@@ -24,8 +32,14 @@ Claude Desktop config.
 - **Cannot bypass Google's rules.** While the Google OAuth app is in "Testing"
   status, refresh tokens expire after ~7 days, so each account needs periodic
   re-auth. The app's job is to make re-auth one click and warn before expiry — not
-  to eliminate it. Removing the 7-day limit requires publishing the OAuth app and
-  passing Google verification (heavy for Gmail/Drive scopes).
+  to eliminate it. Removing the 7-day limit requires publishing the OAuth app to
+  **Production** (free, instant); full Google *verification* (CASA, etc.) is only
+  needed to remove the separate "unverified app" click-through, not the 7-day expiry.
+- **Cannot detect the OAuth app's publishing status via an API.** No user-token API
+  reveals whether the consent screen is "Testing" vs "In production", so the app does
+  not try. Instead it **verifies each refresh token directly against Google** (a real
+  `refresh_token` grant) — ground truth in either mode — and exposes a `productionMode`
+  flag (manual checkbox + auto-learn) to drop the 7-day countdown. See §4 item 3.
 - Local only. No telemetry, no cloud, no remote server. Data path is:
   this machine → Google APIs.
 
@@ -70,15 +84,26 @@ to Claude automatically. There is one token store, one OAuth client, many accoun
    plaintext on disk. Client ID (not secret) may live in app settings JSON.
 2. **Account management** — add/remove the 5 accounts; for each, run a browser
    OAuth sign-in so a token is cached in the shared credentials dir.
-3. **Status dashboard** — for each account show connected / expired and a
-   token-expiry countdown, read from the credential files in the credentials dir.
+3. **Status dashboard** — for each account show connected / expired status,
+   **verified live** by performing a real `refresh_token` grant against Google (on
+   launch, every 6h, and via **Check now**): HTTP 200 → token works
+   ("connected ✓ · verified Xm ago"); `invalid_grant` → dead ("re-auth needed");
+   other/transient → keep prior state. In Testing mode a ~7-day countdown is also
+   shown as a fallback; a `productionMode` flag (manual checkbox + auto-learn when a
+   token outlives 7 days, persisted in settings.json) drops it. The refresh check uses
+   the `refresh_token`/`client_id`/`client_secret`/`token_uri` already in each
+   credential file — it never mutates those files (verify state lives in
+   `accounts.json`).
 4. **One-click re-auth** — re-run the sign-in for any account (the routine answer
-   to the 7-day expiry).
+   to a dead/expired token).
 5. **Claude Desktop wiring** — read, merge, and write the `mcpServers` entry in
    `claude_desktop_config.json` so the user never edits JSON by hand. Always merge
    (never clobber other servers) and back up before writing.
-6. **Diagnostics** — "Test" button launches the server briefly and surfaces logs;
-   prerequisite checks for `uv`/`uvx` and Python.
+6. **Diagnostics & cache pre-warm** — "Test" button launches the server briefly and
+   surfaces logs; prerequisite checks for `uv`/`uvx` and Python; and a background
+   **pre-warm** of `uvx workspace-mcp` (on launch + every 6h) so the one-time install of
+   a new workspace-mcp version happens here, not on Claude's MCP attach path (which would
+   otherwise time out → "Could not attach to MCP server google_workspace").
 
 ## 5. Prerequisites the app must check / guide
 
@@ -170,11 +195,14 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs.
 - **Header**: full-width intro paragraph describing what the app does (the product
   name lives in the OS title bar: "MultiMCP — Google Workspace Manager"). No native
   menu bar — a single **? Help** button (on the Accounts row) opens `HELP.md`.
-- **Dashboard**: add-account row; account cards (email, status dot,
-  connected/re-auth countdown, **Re-auth** + **Remove**); a Claude Desktop config
-  strip ("in sync" shows a green **✓ Done**, otherwise **Write config**); a
-  ~7-day-expiry heads-up note; a **Start with Windows** checkbox (default on); a
-  Debug-log row with a **View log** button (in-app modal viewer).
+- **Dashboard**: add-account row; a **Check now** button (verifies every account
+  against Google on demand); account cards (email, status dot, live
+  "connected ✓ · verified Xm ago" / Testing-mode countdown / "re-auth needed",
+  **Re-auth** + **Remove**); a Claude Desktop config strip ("in sync" shows a green
+  **✓ Done**, otherwise **Write config**); a mode-aware re-auth note; an **"OAuth app
+  published to production"** checkbox (drops the 7-day countdown; auto-ticks once a
+  token outlives 7 days); a **Start with Windows** checkbox (default on); a Debug-log
+  row with a **View log** button (in-app modal viewer).
 - **Credentials**: app-wide editor (toggle at the bottom, "Edit/Hide credentials")
   for the **one** OAuth Client ID + Secret shared by all accounts — explicitly
   labelled so it isn't mistaken for per-account. Secret stored in Credential

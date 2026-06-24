@@ -459,11 +459,52 @@ async function stopAll() {
   signinProc = null;
 }
 
+// Warm the uvx tool cache for workspace-mcp so Claude Desktop's own server can
+// attach quickly. The FIRST time uvx runs a new workspace-mcp version it installs
+// ~90 packages, which can take >60s — longer than Claude's MCP "initialize"
+// timeout — producing "Could not attach to MCP server google_workspace". Running
+// it here (in the background, from the always-on tray app) moves that one-time
+// install OFF Claude's attach path. `--help` resolves + installs the exact package
+// Claude will run, then exits. Safe to call repeatedly; a guard prevents overlap.
+let prewarming = false;
+function prewarm() {
+  if (prewarming) return;
+  prewarming = true;
+  resolveUvxPath()
+    .then((uvx) => {
+      if (!uvx) {
+        prewarming = false;
+        log.warn("prewarm", "no uvx to warm with");
+        return;
+      }
+      const t0 = Date.now();
+      log.info("prewarm", "warming workspace-mcp cache", { uvx });
+      const proc = spawn(uvx, ["workspace-mcp", "--help"], {
+        env: { ...process.env },
+        windowsHide: true,
+        stdio: "ignore",
+      });
+      proc.on("exit", (code) => {
+        prewarming = false;
+        log.info("prewarm", "cache warm complete", { code, ms: Date.now() - t0 });
+      });
+      proc.on("error", (e) => {
+        prewarming = false;
+        log.warn("prewarm", "warm failed", { message: String(e) });
+      });
+    })
+    .catch((e) => {
+      prewarming = false;
+      log.warn("prewarm", "resolve failed", { message: String(e) });
+    });
+}
+
 module.exports = {
   resolveUvxPath,
   checkPrerequisites,
   authorizeAccount,
   testServer,
+  prewarm,
   stopAll,
   SIGNIN_PORT,
 };

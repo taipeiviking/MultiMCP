@@ -1,6 +1,7 @@
 // Accounts service.
 // Tracks which accounts the user wants connected, and derives live status by
-// inspecting the credential files workspace-mcp caches in the shared dir.
+// inspecting the credential files workspace-mcp caches in the shared dir AND by
+// verifying each refresh token against Google directly (see verifyAccount).
 //
 // Credential file format (confirmed against workspace-mcp 1.21.1
 // auth/credential_store.py -> LocalDirectoryCredentialStore):
@@ -15,18 +16,24 @@
 
 const fs = require("fs");
 const path = require("path");
+const https = require("https");
 const credentials = require("./credentials");
 const { quoteEmail, legacySafeEmail, decodeStem } = require("./emailName");
 
 const CRED_EXT = ".json";
 const NON_CREDENTIAL_STEMS = new Set(["oauth_states"]);
 
-// While the Google OAuth app is in "Testing", refresh tokens expire ~7 days
-// after issuance. The credential file's `expiry` is only the 1-hour *access*
-// token (auto-refreshed on use), so it's the wrong thing to show the user. We
-// track when each account was last authorized and count down the 7-day window.
+// In Google OAuth "Testing" mode, refresh tokens expire ~7 days after issuance.
+// In "Production" they don't. We can't read the project's publishing status from a
+// user-token API, so rather than trust a fixed countdown we VERIFY each refresh
+// token against Google (see verifyAccount) — that's ground truth in either mode.
+// The 7-day window below is only a fallback shown in Testing mode until a verify
+// result (or the production flag) supersedes it. A successful verify past the
+// window also auto-learns Production (see maybeLearnProduction).
 const REAUTH_WINDOW_DAYS = 7;
 const DAY_MS = 86400000;
+const VERIFY_FRESH_MS = 24 * 3600 * 1000; // a verify result older than this is ignored
+const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 
 function registryPath() {
   const { app } = require("electron");
@@ -110,7 +117,185 @@ function recordAuthorized(email) {
   writeRegistry(reg);
 }
 
-function readTokenStatus(email, reg) {
+// --- Refresh-token verification (ground truth, mode-independent) -------------
+
+// POST application/x-www-form-urlencoded and resolve { statusCode, body }.
+function postForm(urlStr, params) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try {
+      u = new URL(urlStr);
+    } catch (e) {
+      return reject(e);
+    }
+    const body = Object.entries(params)
+      .map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(v))
+      .join("&");
+    const req = https.request(
+      {
+        method: "POST",
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": Buffer.byteLength(body),
+        },
+        timeout: 15000,
+      },
+      (resp) => {
+        let chunks = "";
+        resp.on("data", (d) => (chunks += d));
+        resp.on("end", () => resolve({ statusCode: resp.statusCode, body: chunks }));
+      }
+    );
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("token endpoint timeout")));
+    req.write(body);
+    req.end();
+  });
+}
+
+// Persist the outcome of a verify so the (sync) status readers can reflect it.
+function recordVerify(email, res) {
+  email = (email || "").trim().toLowerCase();
+  if (!email) return;
+  const reg = readRegistry();
+  reg.verify = reg.verify || {};
+  reg.verify[email] = {
+    ok: !!res.ok,
+    status: res.status || null,
+    transient: !!res.transient,
+    at: new Date().toISOString(),
+  };
+  if (res.ok) {
+    reg.lastVerifiedAt = reg.lastVerifiedAt || {};
+    reg.lastVerifiedAt[email] = new Date().toISOString();
+  }
+  writeRegistry(reg);
+}
+
+// A refresh token that still works past the 7-day Testing window proves the OAuth
+// app is effectively in Production (a Testing token would already be dead). Learn
+// that once and stop showing countdowns. Never overrides an explicit user choice.
+function maybeLearnProduction(email) {
+  try {
+    const s = credentials.readSettings();
+    if (s.productionMode === true) return;
+    const reg = readRegistry();
+    const recorded = reg.authorizedAt && reg.authorizedAt[email];
+    if (!recorded) return;
+    const ageMs = Date.now() - new Date(recorded).getTime();
+    if (ageMs > (REAUTH_WINDOW_DAYS + 1) * DAY_MS) {
+      credentials.patchSettings({ productionMode: true, productionModeSource: "auto" });
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Prove a refresh token still works by doing a real refresh_token grant against
+// Google. This is identical whether the OAuth app is in Testing or Production, so
+// it's the correct signal to drive the UI. Outcomes:
+//   { ok:true }                                        token alive
+//   { ok:false, status:'invalid_grant' }               Google rejected it (dead) — definitive
+//   { ok:false, status:'no_refresh'|'no_credential' }  nothing to verify — definitive
+//   { ok:false, status:'unreachable'|..., transient:true }  state unknown (offline etc.)
+async function verifyAccount(email) {
+  email = (email || "").trim().toLowerCase();
+  const p = credentialFilePath(email);
+  if (!p || !safeExists(p)) {
+    const r = { ok: false, status: "no_credential" };
+    recordVerify(email, r);
+    return r;
+  }
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    const r = { ok: false, status: "unreadable", transient: true };
+    recordVerify(email, r);
+    return r;
+  }
+  if (!data.refresh_token) {
+    const r = { ok: false, status: "no_refresh" };
+    recordVerify(email, r);
+    return r;
+  }
+  const clientId = data.client_id;
+  let clientSecret = data.client_secret;
+  if (!clientSecret) {
+    try {
+      clientSecret = await credentials.getClientSecret();
+    } catch {
+      /* fall through to missing_client */
+    }
+  }
+  if (!clientId || !clientSecret) {
+    const r = { ok: false, status: "missing_client", transient: true };
+    recordVerify(email, r);
+    return r;
+  }
+  let resp;
+  try {
+    resp = await postForm(data.token_uri || GOOGLE_TOKEN_URI, {
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: data.refresh_token,
+      grant_type: "refresh_token",
+    });
+  } catch (e) {
+    const r = {
+      ok: false,
+      status: "unreachable",
+      transient: true,
+      error: String((e && e.message) || e),
+    };
+    recordVerify(email, r);
+    return r;
+  }
+  if (resp.statusCode === 200) {
+    recordVerify(email, { ok: true, status: "ok" });
+    maybeLearnProduction(email);
+    return { ok: true, status: "ok" };
+  }
+  let errCode = null;
+  try {
+    errCode = JSON.parse(resp.body).error;
+  } catch {
+    /* non-JSON body */
+  }
+  if (resp.statusCode === 400 && errCode === "invalid_grant") {
+    const r = { ok: false, status: "invalid_grant" };
+    recordVerify(email, r);
+    return r;
+  }
+  // Any other response (5xx, rate-limit, unexpected 4xx) is treated as transient —
+  // we never tear down a working account on an ambiguous blip.
+  const r = {
+    ok: false,
+    status: errCode ? `error_${errCode}` : `http_${resp.statusCode}`,
+    transient: true,
+  };
+  recordVerify(email, r);
+  return r;
+}
+
+// Verify every known account (sequential — the fleet is tiny). Returns the fresh
+// account list so callers can update the UI in one round-trip.
+async function verifyAll() {
+  const reg = readRegistry();
+  for (const email of reg.emails || []) {
+    try {
+      await verifyAccount(email);
+    } catch {
+      /* recordVerify already captured transient failures */
+    }
+  }
+  return listAccounts();
+}
+
+function readTokenStatus(email, reg, settings) {
   const p = credentialFilePath(email);
   if (!p || !safeExists(p)) return { connected: false };
 
@@ -124,9 +309,18 @@ function readTokenStatus(email, reg) {
   const hasRefresh = !!data.refresh_token;
   const accessExpiry = parseExpiry(data.expiry); // 1-hour access token (diagnostic only)
 
+  if (!reg) reg = readRegistry();
+  if (!settings) {
+    try {
+      settings = credentials.readSettings();
+    } catch {
+      settings = {};
+    }
+  }
+  const productionMode = settings.productionMode === true;
+
   // When was this account last authorized? Prefer our recorded timestamp; fall
   // back to the credential file's mtime (its first write ≈ issuance).
-  if (!reg) reg = readRegistry();
   let authorizedAt = null;
   const recorded = reg.authorizedAt && reg.authorizedAt[email];
   if (recorded) authorizedAt = new Date(recorded);
@@ -138,13 +332,25 @@ function readTokenStatus(email, reg) {
     }
   }
 
-  const reauthDeadline = authorizedAt
-    ? new Date(authorizedAt.getTime() + REAUTH_WINDOW_DAYS * DAY_MS)
-    : null;
+  // Ground-truth verify result (from a real refresh against Google).
+  const v = (reg.verify && reg.verify[email]) || null;
+  const verifyFresh = !!(v && v.at && Date.now() - new Date(v.at).getTime() < VERIFY_FRESH_MS);
+  const verifiedAliveNow = !!(verifyFresh && v.ok === true);
+  const verifyFailedHard = !!(verifyFresh && v.ok === false && !v.transient);
+  const lastVerifiedAt = (reg.lastVerifiedAt && reg.lastVerifiedAt[email]) || null;
 
-  // "Needs re-auth" if there's no refresh token, or the 7-day window has passed.
-  const expired =
-    !hasRefresh || (reauthDeadline ? reauthDeadline.getTime() < Date.now() : false);
+  // The 7-day window is only meaningful in Testing mode, and a fresh successful
+  // verify supersedes it (the token is provably alive right now).
+  const reauthDeadline =
+    !productionMode && authorizedAt
+      ? new Date(authorizedAt.getTime() + REAUTH_WINDOW_DAYS * DAY_MS)
+      : null;
+  const windowPassed =
+    !verifiedAliveNow && (reauthDeadline ? reauthDeadline.getTime() < Date.now() : false);
+
+  // "Needs re-auth" if: no refresh token, OR a real refresh was rejected, OR
+  // (Testing only, and not just-verified) the 7-day window elapsed.
+  const expired = !hasRefresh || verifyFailedHard || windowPassed;
 
   return {
     connected: true,
@@ -152,15 +358,25 @@ function readTokenStatus(email, reg) {
     scopes: Array.isArray(data.scopes) ? data.scopes : [],
     accessExpiry: accessExpiry ? accessExpiry.toISOString() : null,
     authorizedAt: authorizedAt ? authorizedAt.toISOString() : null,
-    // `expiry` now means the re-auth deadline (what the user actually cares about).
+    // `expiry` is the Testing-mode re-auth deadline; null in Production.
     expiry: reauthDeadline ? reauthDeadline.toISOString() : null,
     expired,
+    productionMode,
+    verifiedAt: lastVerifiedAt,
+    verifyStatus: v ? v.status : null,
+    verifyOk: v ? !!v.ok : null,
   };
 }
 
 function listAccounts() {
   const reg = readRegistry();
-  return reg.emails.map((email) => ({ email, ...readTokenStatus(email, reg) }));
+  let settings = {};
+  try {
+    settings = credentials.readSettings();
+  } catch {
+    /* defaults */
+  }
+  return reg.emails.map((email) => ({ email, ...readTokenStatus(email, reg, settings) }));
 }
 
 function addAccount(email) {
@@ -187,5 +403,7 @@ module.exports = {
   removeAccount,
   readTokenStatus,
   recordAuthorized,
+  verifyAccount,
+  verifyAll,
   credentialFilePath,
 };
