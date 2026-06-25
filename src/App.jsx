@@ -54,14 +54,16 @@ export default function App() {
       </header>
 
       <main className="content">
-        {needsSetup ? (
-          <CredentialsSetup creds={creds} onSaved={refresh} />
-        ) : (
-          <Dashboard creds={creds} prereqs={prereqs} onChangeCreds={() => setCreds({ ...creds, _edit: !creds._edit })} />
-        )}
-        {creds?._edit && (
-          <CredentialsSetup creds={creds} onSaved={refresh} editing />
-        )}
+        <div className="content__inner">
+          {needsSetup ? (
+            <CredentialsSetup creds={creds} onSaved={refresh} />
+          ) : (
+            <Dashboard creds={creds} prereqs={prereqs} onChangeCreds={() => setCreds({ ...creds, _edit: !creds._edit })} />
+          )}
+          {creds?._edit && (
+            <CredentialsSetup creds={creds} onSaved={refresh} editing />
+          )}
+        </div>
       </main>
 
       <StatusBar prereqs={prereqs} />
