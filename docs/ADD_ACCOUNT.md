@@ -3,8 +3,9 @@
 A step-by-step guide to connecting a Google **Workspace** (or personal Gmail) account
 so Claude Desktop can use its Gmail, Drive, and Calendar.
 
-> 🖼️ **This guide is being illustrated** — the text steps are complete; screenshots
-> are being added. Each step shows the image it needs and exactly what to capture.
+> 🖼️ The core sign-in flow (steps B3, B5–B9) is illustrated below. A few optional shots
+> (B4, the Part C "publish to production" screens, and the Part A one-time setup) are
+> still pending — see the shot-list at the end.
 
 ---
 
@@ -114,8 +115,7 @@ controls → App access control → Configure new app → OAuth Client ID**, pas
 In the app's **Accounts** screen, type the address in **add account email** and click
 **Add**. A grey **not connected** card appears.
 
-> 🖼️ **Screenshot — `images/add-account/b3-app-add-email.png`**
-> _Capture:_ the add-account row with the email typed in and the **Add** button.
+![Type the new account's email into "add account email" and click Add](images/add-account/b3-add-email.gif)
 
 ### B4. Click Sign in
 On the new card, click **Sign in**. Your **system browser** opens to Google automatically.
@@ -126,36 +126,31 @@ On the new card, click **Sign in**. Your **system browser** opens to Google auto
 ### B5. Choose the account
 In the browser, pick the address you're adding (it's pre-selected via a login hint).
 
-> 🖼️ **Screenshot — `images/add-account/b5-google-account-picker.png`**
-> _Capture:_ the Google **"Choose an account"** screen.
+![Choose the account you're adding, then Continue](images/add-account/b5-account-consent.gif)
 
 ### B6. Get past "Google hasn't verified this app"
 For an unverified app you'll see a warning. Click **Advanced → Go to … (unsafe)**. This is
 expected — it's your own app — and stays even in production unless you complete full Google
 verification (not required for personal/team use).
 
-> 🖼️ **Screenshot — `images/add-account/b6-unverified-advanced.png`**
-> _Capture:_ the "Google hasn't verified this app" screen with **Advanced → Go to …** visible.
+![On "Google hasn't verified this app", click Advanced then "Go to … (unsafe)"](images/add-account/b6-unverified-advanced.gif)
 
 ### B7. Grant all permissions
 Approve **all** requested Gmail / Drive / Calendar permissions. **Do not uncheck any** —
 partial grants cause "missing scopes" errors later.
 
-> 🖼️ **Screenshot — `images/add-account/b7-consent-grant-scopes.png`**
-> _Capture:_ the consent screen listing the permissions, with everything granted.
+![Tick "Select all" and grant every Gmail / Drive / Calendar permission](images/add-account/b7-grant-scopes.gif)
 
 ### B8. Confirm success
 The browser shows **"Authentication successful."** You can close that tab.
 
-> 🖼️ **Screenshot — `images/add-account/b8-auth-success.png`**
-> _Capture:_ the **"Authentication successful"** browser page.
+![The browser shows "Authentication Successful"](images/add-account/b8-auth-success.gif)
 
 ### B9. Verify in the app
 Back in the app the card turns **green**: **"connected ✓ · verified just now."** (If it
 doesn't update immediately, click **Check now** at the top right.)
 
-> 🖼️ **Screenshot — `images/add-account/b9-app-connected.png`**
-> _Capture:_ the account card now green with **connected ✓ · verified …**.
+![Back in the app the account shows green — connected ✓ · verified](images/add-account/b9-app-connected.gif)
 
 ---
 
@@ -253,13 +248,13 @@ the one-time-setup visuals). **Redact the Client Secret in any Console screensho
 | A6 | `a6-app-credentials-screen.png` | App Credentials screen (secret redacted) | optional |
 | B1 | `b1-test-users.png` | Test users list | Testing mode only |
 | B2 | `b2-admin-app-access.png` | Admin console: Client ID trusted | managed-org only |
-| B3 | `b3-app-add-email.png` | App: email typed + Add | **yes** |
-| B4 | `b4-app-card-signin.png` | App: grey card + Sign in | **yes** |
-| B5 | `b5-google-account-picker.png` | Google account picker | **yes** |
-| B6 | `b6-unverified-advanced.png` | "Hasn't verified" → Advanced | **yes** |
-| B7 | `b7-consent-grant-scopes.png` | Consent / grant scopes | **yes** |
-| B8 | `b8-auth-success.png` | "Authentication successful" | **yes** |
-| B9 | `b9-app-connected.png` | App: green connected card | **yes** |
+| B3 | `b3-add-email.gif` | App: email typed + Add | ✅ added |
+| B4 | `b4-app-card-signin.png` | App: grey card + Sign in | pending |
+| B5 | `b5-account-consent.gif` | Choosing the account | ✅ added |
+| B6 | `b6-unverified-advanced.gif` | "Hasn't verified" → Advanced | ✅ added |
+| B7 | `b7-grant-scopes.gif` | Consent / grant scopes | ✅ added |
+| B8 | `b8-auth-success.gif` | "Authentication successful" | ✅ added |
+| B9 | `b9-app-connected.gif` | App: accounts connected | ✅ added |
 | C1 | `c1-publishing-status-testing.png` | Console: Publishing status = Testing (+ Publish app) | **yes** |
 | C2 | `c2-publishing-status-production.png` | Console: Publishing status = In production | **yes** |
 | C3 | `c3-app-production-checkbox.png` | App: production checkbox ticked | **yes** |
