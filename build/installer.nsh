@@ -72,9 +72,15 @@
   Sleep 300
 !macroend
 
-; ---- UNINSTALL: make sure the app isn't running before removing files -----------
+; ---- UNINSTALL: close the app + remove the autostart logon task -----------------
 !macro customUnInit
   DetailPrint "Closing Google Workspace Manager before uninstalling..."
   nsExec::ExecToLog 'taskkill /F /IM "Google Workspace Manager.exe" /T'
   Sleep 400
+  ; Remove the "At log on" scheduled task the app creates for autostart, so we
+  ; don't leave an orphan task pointing at a deleted exe. (The HKCU Run value lives
+  ; under the user's registry and is harmless if left, but we remove it too.)
+  DetailPrint "Removing autostart entries..."
+  nsExec::ExecToLog 'schtasks /Delete /TN "GoogleWorkspaceManagerAutostart" /F'
+  nsExec::ExecToLog 'reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "com.local.googleworkspacemanager" /f'
 !macroend

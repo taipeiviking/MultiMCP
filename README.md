@@ -9,10 +9,10 @@ Claude Desktop config.
 ## ⬇️ Download & install
 
 **[➤ Download the latest Windows installer](https://github.com/taipeiviking/MultiMCP/releases/latest)**
-— then run **`Google-Workspace-Manager-Setup-0.3.5.exe`**.
+— then run **`Google-Workspace-Manager-Setup-0.3.6.exe`**.
 
 1. On the Releases page, under **Assets**, click
-   **`Google-Workspace-Manager-Setup-0.3.5.exe`** to download.
+   **`Google-Workspace-Manager-Setup-0.3.6.exe`** to download.
 2. Run it. If Windows **SmartScreen** shows a one-time *"Windows protected your PC"*
    notice (normal for any app downloaded from the web without a paid code-signing
    certificate), click **More info → Run anyway**. Installs per-user; no admin needed.

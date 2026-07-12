@@ -4,6 +4,19 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.3.6 — 2026-07-13
+*More reliable autostart (survives Windows Fast Startup).*
+
+### Fixed
+- **Autostart now uses a Task Scheduler "At log on" task**, not just the `HKCU\…\Run`
+  registry value. Run-key entries can be silently skipped after a Windows **Fast Startup**
+  (hybrid shutdown) resume, so the tray app sometimes didn't come back after boot. The logon
+  task fires reliably; the Run key is kept as a fallback. The task is registered per-user via
+  PowerShell's `Register-ScheduledTask` (no admin needed), created/reconciled on launch, and
+  removed on uninstall.
+- Note: the app starts **hidden in the system tray** (no window) — expand the tray's `^`
+  chevron to find it. This is by design; "no window" doesn't mean it didn't start.
+
 ## v0.3.5 — 2026-06-24
 *Live verification, production mode, and a faster Claude attach.*
 

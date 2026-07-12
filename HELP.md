@@ -248,7 +248,20 @@ limit. These are occasional, not the weekly grind of Testing mode.
 ## Start with Windows
 
 Toggle **Start automatically with Windows** (dashboard footer or tray menu) to
-launch the app to the tray on login. It starts **hidden** (no window pops up).
+launch the app to the tray on login. It starts **hidden** — **no window pops up**,
+so look in the system tray (click the `^` chevron to show hidden icons) for the
+amber dot. "No window" does **not** mean it failed to start.
+
+**How it's registered:** the app creates a Task Scheduler **"At log on"** task
+(`GoogleWorkspaceManagerAutostart`, per-user, no admin needed) *and* an
+`HKCU\…\Run` value as a fallback. The scheduled task is used because plain Run-key
+entries can be **silently skipped after a Windows "Fast Startup" (hybrid shutdown)
+resume** — which is the usual reason a tray app "doesn't come back after reboot."
+
+> If it ever doesn't start after a boot: open it once from the Start menu (that
+> re-reconciles the task), or toggle **Start automatically with Windows** off and
+> on. You can also confirm the task exists with
+> `Get-ScheduledTask GoogleWorkspaceManagerAutostart` in PowerShell.
 
 > This only takes effect in the **installed** app. In a development build the
 > setting is remembered but not registered, because a dev login item would point

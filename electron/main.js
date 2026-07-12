@@ -322,20 +322,94 @@ function getAutostartEnabled() {
   return autostartPref();
 }
 
-// The HKCU Run value name (Electron used the AppUserModelId; keep it identical
-// so we overwrite — not duplicate — any entry a previous build registered).
+// Autostart uses TWO mechanisms for reliability:
+//   1. A Task Scheduler "At log on" task (primary). Scheduled tasks fire reliably
+//      after login — including after a Windows "Fast Startup" (hybrid) resume,
+//      which can silently skip HKCU\...\Run entries.
+//   2. The HKCU\...\Run value (fallback). Kept so autostart still works if the
+//      scheduled task can't be created (locked-down machines, group policy).
+// Both launch the SAME command; the app's single-instance lock means that even if
+// both fire, only one instance runs.
 const RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+// Task Scheduler task name (kept stable so we overwrite, not duplicate).
+const TASK_NAME = "GoogleWorkspaceManagerAutostart";
 
-// Build the exact command Windows runs at login. The path MUST be quoted: the
-// installed exe lives under "...\Google Workspace Manager.exe" (spaces), and an
-// unquoted value makes Windows try to run "...\Google" — the app then silently
-// never starts. (Electron's setLoginItemSettings({args}) writes the path
-// UNQUOTED — the bug we are working around — so we write the key ourselves.)
+// The installed exe path contains spaces, so it MUST be quoted everywhere it's
+// used as a command; an unquoted "...\Google Workspace Manager.exe" makes Windows
+// try to run "...\Google" and the app silently never starts.
 function autostartCommand() {
   return `"${process.execPath}" --hidden`;
 }
 
-// Write/remove the Run key via reg.exe (no native deps, always available).
+// --- Task Scheduler primary mechanism ---------------------------------------
+//
+// We create the logon task via PowerShell's ScheduledTasks module, NOT
+// `schtasks /SC ONLOGON`. Why: `schtasks /SC ONLOGON` registers a machine-wide
+// logon trigger and requires ELEVATION ("Access is denied" for a normal user).
+// Register-ScheduledTask with an -AtLogOn trigger scoped to the CURRENT USER
+// registers under the user and succeeds WITHOUT admin — which is what we need,
+// since the app runs unelevated. The task runs with limited rights in the
+// interactive session, so the tray icon shows normally.
+
+// Run a PowerShell snippet, returning true on exit 0. Uses -NoProfile so a slow/
+// broken user profile can't hang or fail it.
+function runPowerShell(script) {
+  execFileSync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+    { windowsHide: true, stdio: "ignore" }
+  );
+}
+
+function writeAutostartTask() {
+  try {
+    // Build the task in-script. Escape single quotes in the exe path for PS.
+    const exe = process.execPath.replace(/'/g, "''");
+    const ps =
+      `$a = New-ScheduledTaskAction -Execute '${exe}' -Argument '--hidden'; ` +
+      `$t = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME; ` +
+      // Allow it to run on battery / not stop after a time limit (default settings
+      // would stop the tray app after 3 days on some policies).
+      `$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries ` +
+      `-DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) ` +
+      `-StartWhenAvailable; ` +
+      `Register-ScheduledTask -TaskName '${TASK_NAME}' -Action $a -Trigger $t ` +
+      `-Settings $s -Force | Out-Null`;
+    runPowerShell(ps);
+    return true;
+  } catch (e) {
+    log.warn("autostart", "logon task create failed (falling back to Run key)", {
+      message: String(e),
+    });
+    return false;
+  }
+}
+
+function removeAutostartTask() {
+  try {
+    runPowerShell(
+      `Unregister-ScheduledTask -TaskName '${TASK_NAME}' -Confirm:$false ` +
+        `-ErrorAction SilentlyContinue`
+    );
+  } catch {
+    /* task already absent */
+  }
+}
+
+function autostartTaskExists() {
+  try {
+    runPowerShell(
+      `if (-not (Get-ScheduledTask -TaskName '${TASK_NAME}' ` +
+        `-ErrorAction SilentlyContinue)) { exit 1 }`
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// --- HKCU Run fallback mechanism --------------------------------------------
+
 function writeAutostartRegistry(enabled) {
   if (enabled) {
     execFileSync("reg.exe", [
@@ -343,7 +417,6 @@ function writeAutostartRegistry(enabled) {
       "/d", autostartCommand(), "/f",
     ]);
   } else {
-    // /f so a missing value isn't treated as an error.
     try {
       execFileSync("reg.exe", ["delete", RUN_KEY, "/v", APP_ID, "/f"]);
     } catch {
@@ -352,11 +425,31 @@ function writeAutostartRegistry(enabled) {
   }
 }
 
+function readAutostartRegistry() {
+  try {
+    const out = execFileSync("reg.exe", ["query", RUN_KEY, "/v", APP_ID]).toString();
+    const m = out.match(/REG_SZ\s+(.*)\s*$/m);
+    return m ? m[1].trim() : null;
+  } catch {
+    return null; // value not present
+  }
+}
+
+// --- Combined enable/disable + reconcile ------------------------------------
+
 function setAutostartEnabled(enabled) {
   enabled = !!enabled;
   try {
     credentials.patchSettings({ autostart: enabled });
-    if (!isDev) writeAutostartRegistry(enabled);
+    if (!isDev) {
+      if (enabled) {
+        writeAutostartTask();
+        writeAutostartRegistry(true);
+      } else {
+        removeAutostartTask();
+        writeAutostartRegistry(false);
+      }
+    }
     log.info("autostart", "set", { enabled, isDev, cmd: autostartCommand() });
   } catch (e) {
     log.error("autostart", "failed", { message: String(e) });
@@ -365,31 +458,28 @@ function setAutostartEnabled(enabled) {
   return getAutostartEnabled();
 }
 
-// Reconcile the Run key with the saved preference at startup (packaged). This
-// also SELF-HEALS an old broken (unquoted) value: we always rewrite to the
-// correctly quoted command when autostart is on.
+// Reconcile both mechanisms with the saved preference at startup (packaged). This
+// self-heals: creates the scheduled task if it's missing, and rewrites a stale/
+// unquoted Run value. Idempotent.
 function applyAutostartPreference() {
   if (isDev) return;
   const desired = autostartPref();
   try {
-    let current = null;
-    try {
-      const out = execFileSync("reg.exe", [
-        "query", RUN_KEY, "/v", APP_ID,
-      ]).toString();
-      const m = out.match(/REG_SZ\s+(.*)\s*$/m);
-      current = m ? m[1].trim() : null;
-    } catch {
-      current = null; // value not present
+    // Task Scheduler (primary)
+    const taskThere = autostartTaskExists();
+    if (desired && !taskThere) {
+      writeAutostartTask();
+      log.info("autostart", "created logon task", { task: TASK_NAME });
+    } else if (!desired && taskThere) {
+      removeAutostartTask();
+      log.info("autostart", "removed logon task", { task: TASK_NAME });
     }
+    // Run key (fallback) — keep it correct too
+    const current = readAutostartRegistry();
     const want = desired ? autostartCommand() : null;
     if (current !== want) {
       writeAutostartRegistry(desired);
-      log.info("autostart", "reconciled at launch", {
-        desired,
-        was: current,
-        now: want,
-      });
+      log.info("autostart", "reconciled run key", { desired, was: current, now: want });
     }
   } catch (e) {
     log.error("autostart", "reconcile failed", { message: String(e) });
