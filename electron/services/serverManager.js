@@ -30,7 +30,12 @@ const { credentialFilePath } = require("./accounts");
 const log = require("./logger");
 
 const SIGNIN_PORT = 8000; // redirect URI on the OAuth client: http://localhost:8000/oauth2callback
-const SIGNIN_TIMEOUT_MS = 180000; // how long we wait for the user to finish consent
+// How long we keep the sign-in callback server alive waiting for the user to finish
+// consent. Generous on purpose: an UNVERIFIED app makes the user click through
+// several "Google hasn't verified this app" screens (especially for a personal
+// @gmail account with restricted scopes), which routinely takes >3 min. If this
+// window elapses, the callback lands on a dead port and "nothing happens".
+const SIGNIN_TIMEOUT_MS = 600000; // 10 minutes
 const POLL_INTERVAL_MS = 1000;
 
 function which(cmd) {
@@ -399,7 +404,10 @@ async function authorizeAccount(email) {
     pending: true,
     authUrl,
     note:
-      "Finish the sign-in in your browser if you haven't. Then click Re-auth/refresh to update status.",
+      "Sign-in timed out waiting for the browser. This usually means the consent took " +
+      "longer than the window (an unverified app shows extra warning screens). Click " +
+      "Sign in / Re-auth again and complete the consent promptly — click through " +
+      "“Google hasn’t verified this app” → Advanced → Continue, then grant all.",
   };
 }
 

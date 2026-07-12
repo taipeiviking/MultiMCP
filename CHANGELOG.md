@@ -4,6 +4,17 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.3.7 — 2026-07-13
+*Longer sign-in window for unverified-app consent.*
+
+### Fixed
+- **Sign-in no longer times out mid-consent.** The callback server waited only 3 minutes,
+  but an **unverified** app makes you click through several "Google hasn't verified this app"
+  screens — especially for a **personal @gmail account** with restricted scopes — which often
+  takes longer. When the window elapsed, the browser redirect landed on a closed port and
+  "nothing happened." The wait is now **10 minutes**, and the timeout message explains what to
+  do. (Tip: the fastest path is still to click through consent promptly.)
+
 ## v0.3.6 — 2026-07-13
 *More reliable autostart (survives Windows Fast Startup).*
 
