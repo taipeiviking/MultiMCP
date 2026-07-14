@@ -315,7 +315,7 @@ function CodexStrip({ codex, busy, err, onWrite }) {
     return (
       <div className="claude-strip claude-strip--absent">
         <span className="muted small">
-          <strong>OpenAI Codex</strong> isn't installed — nothing to do here. If you install it
+          <strong>ChatGPT Codex</strong> isn't installed — nothing to do here. If you install it
           later, come back and you can add the same accounts to it in one click.
         </span>
       </div>
@@ -327,12 +327,12 @@ function CodexStrip({ codex, busy, err, onWrite }) {
   // doing its job. Only a genuinely stale entry is worth colouring.
   const state = codex.inSync ? "ok" : codex.present ? "stale" : "absent";
   const label = codex.error
-    ? `Codex config: ${codex.error}`
+    ? `ChatGPT Codex config: ${codex.error}`
     : state === "ok"
-      ? "Codex config in sync"
+      ? "ChatGPT Codex config in sync"
       : state === "stale"
-        ? "Codex config out of date"
-        : "OpenAI Codex detected — add your accounts to it too";
+        ? "ChatGPT Codex config out of date"
+        : "ChatGPT Codex detected — add your accounts to it too";
 
   return (
     <>
@@ -343,7 +343,7 @@ function CodexStrip({ codex, busy, err, onWrite }) {
           onClick={onWrite}
           disabled={busy || state === "ok" || !!codex.error}
         >
-          {busy ? "Writing…" : state === "ok" ? "✓ Done" : "Write Codex config"}
+          {busy ? "Writing…" : state === "ok" ? "✓ Done" : "Write ChatGPT Codex config"}
         </button>
       </div>
       {err && <div className="error">{err}</div>}

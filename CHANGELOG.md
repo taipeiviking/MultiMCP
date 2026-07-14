@@ -4,6 +4,12 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.5.2 — 2026-07-15
+*Naming.*
+
+### Changed
+- The Codex row now says **ChatGPT Codex**, not just "Codex" — it is clearer which product it means.
+
 ## v0.5.1 — 2026-07-15
 *Keeps itself correct while you aren't looking.*
 
