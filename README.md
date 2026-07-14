@@ -9,10 +9,11 @@ Claude Desktop config.
 ## ⬇️ Download & install
 
 **[➤ Download the latest Windows installer](https://github.com/taipeiviking/MultiMCP/releases/latest)**
-— then run **`Google-Workspace-Manager-Setup-0.3.8.exe`**.
+— then run the **`Google-Workspace-Manager-Setup-<version>.exe`** attached to the newest release.
 
 1. On the Releases page, under **Assets**, click
-   **`Google-Workspace-Manager-Setup-0.3.8.exe`** to download.
+   **`Google-Workspace-Manager-Setup-<version>.exe`** to download (take the newest release;
+   the version number in the filename changes with each one).
 2. Run it. If Windows **SmartScreen** shows a one-time *"Windows protected your PC"*
    notice (normal for any app downloaded from the web without a paid code-signing
    certificate), click **More info → Run anyway**. Installs per-user; no admin needed.
@@ -20,6 +21,13 @@ Claude Desktop config.
    enter your Google OAuth Client ID + Secret once (or **Import** a config file from
    another computer), add each account and **Sign in**, click **Write config**, and
    restart Claude Desktop.
+
+> **New in v0.4.0 — worth knowing if you're upgrading.** The connector now appears in Claude
+> as **MultiMCP** (it used to be called `google_workspace`; the app removes the old entry when
+> it writes the new one, so you won't end up with two). This release also **fixes the unwanted
+> Google sign-in tabs** that opened — one per account, each landing on an "Access blocked" error
+> — as soon as a single Claude conversation used more than one account. Install over the top,
+> launch the app once, then fully quit and reopen Claude Desktop.
 
 Full step-by-step guide: **[HELP.md](HELP.md)**. Adding more Google accounts (illustrated
 walkthrough, incl. getting out of Testing mode): **[docs/ADD_ACCOUNT.md](docs/ADD_ACCOUNT.md)**.
@@ -35,33 +43,41 @@ You do that from the app — you never hand-edit Claude's config.
    *all* Gmail/Drive/Calendar scopes). Cards turn 🟢 green when connected.
 2. **Click `Write config`.** The app finds Claude Desktop's
    `claude_desktop_config.json`, **backs it up**, and **merges in** a
-   `google_workspace` MCP server entry — it writes the absolute path to `uvx` and the
-   shared credentials dir, and never touches your other MCP servers. The status strip
-   then reads **“Claude Desktop config in sync.”**
+   `MultiMCP` MCP server entry — it writes the absolute path to `uvx` and the
+   shared credentials dir, and never touches your other MCP servers. If an older
+   `google_workspace` entry is still there, it is removed at the same time, so you end up
+   with one connector rather than two. The status strip then reads
+   **“Claude Desktop config in sync.”**
 3. **Fully quit and reopen Claude Desktop** (tray → Quit, not just close the window —
    Claude only reads its config at startup).
 4. In a new chat, open the **connectors / tools** menu — you'll see
-   **`google_workspace`** with Gmail, Drive, and Calendar tools. Ask e.g.
-   *“search my Gmail for …”* and Claude will use the account(s) you primed.
+   **`MultiMCP`** (formerly `google_workspace`) with Gmail, Drive, and Calendar tools. Ask
+   e.g. *“search my Gmail for …”* and Claude will use the account(s) you primed.
 
 > **You don't need to keep this app open.** Claude Desktop launches its **own**
 > `uvx workspace-mcp` per chat session, pointed at the same shared credentials dir,
 > so it reuses the sign-ins you primed here. The tray app exists to do the sign-ins,
-> write the config, and warn you before Google's ~7-day token expiry.
+> write the config, and warn you if a sign-in goes stale (while the OAuth app is still in
+> **Testing** mode, that includes Google's ~7-day token expiry — see
+> [Make sign-ins long-lived](HELP.md#long-lived)).
 
-**What the entry looks like** (written for you — shown for reference):
+**What the entry looks like** (written for you — shown for reference). The key —
+`MultiMCP` — is exactly the name Claude shows in its connectors menu:
 ```jsonc
 // in %APPDATA%\Claude\claude_desktop_config.json
 {
   "mcpServers": {
-    "google_workspace": {
+    "MultiMCP": {
       "command": "C:\\Users\\you\\.local\\bin\\uvx.exe",
       "args": ["workspace-mcp", "--tools", "gmail", "drive", "calendar"],
-      "env": { "GOOGLE_MCP_CREDENTIALS_DIR": "C:\\Users\\you\\.google_workspace_mcp\\credentials", "...": "..." }
+      "env": { "GOOGLE_MCP_CREDENTIALS_DIR": "C:\\Users\\you\\.google_workspace_mcp\\credentials", "MCP_SINGLE_USER_MODE": "1", "...": "..." }
     }
   }
 }
 ```
+
+`MCP_SINGLE_USER_MODE` is what stops the stray sign-in tabs, and despite its name it does
+**not** limit you to one account — all of your accounts keep working exactly as before.
 
 If Claude doesn't show the tools: confirm the strip says **in sync**, then **fully
 quit** Claude from its tray icon and reopen. A one-time **"Could not attach to MCP
@@ -106,9 +122,10 @@ review the summary, and choose:
 - **Import & overwrite** — also replaces existing sign-in tokens with the ones from the
   file (use when the file is the newer/authoritative copy).
 
-Then click **Write config** and restart Claude Desktop. As long as the tokens are still
-within Google's ~7-day window, no re-auth is needed; if one is stale, just click
-**Re-auth** for that account.
+Then click **Write config** and restart Claude Desktop. As long as the imported sign-ins are
+still valid, no re-auth is needed; if one is stale, just click **Re-auth** for that account.
+(Sign-ins made while the OAuth app is in **Testing** mode expire after ~7 days, so an older
+export may need a re-auth or two.)
 
 > The same **Export / Import settings** controls are also on the dashboard after setup.
 
@@ -132,8 +149,9 @@ within Google's ~7-day window, no re-auth is needed; if one is stale, just click
   launch, every 6h, and via a **Check now** button — so it reflects reality, not a
   fixed clock. Shows "connected ✓ · verified Xm ago" when healthy and "re-auth needed"
   only when Google actually rejects a token.
-- Writes/merges the `google_workspace` entry into `claude_desktop_config.json`
-  (backs up first; never clobbers other MCP servers).
+- Writes/merges the `MultiMCP` entry into `claude_desktop_config.json` (backs up first;
+  never clobbers other MCP servers, and clears out the old `google_workspace` entry if
+  one is left over from an earlier version).
 - One-click **Re-auth** for any account. In **Testing** mode it shows the ~7-day
   countdown; tick **"OAuth app published to production"** (or let it auto-detect once a
   token outlives 7 days) to drop the countdown — see
@@ -152,9 +170,12 @@ within Google's ~7-day window, no re-auth is needed; if one is stale, just click
   (If you already have [`uv`](https://github.com/astral-sh/uv) installed, the app just
   prefers its own bundled copy. On first run, uv auto-provisions Python + `workspace-mcp`.)
 - A Google Cloud project with: OAuth client (Web application), **standard** Gmail,
-  Drive, and **Calendar** APIs enabled, consent screen = External, your accounts
-  added as Test users, and redirect URI `http://localhost:8000/oauth2callback` on
-  the OAuth client. See `SPEC.md` §7 and `HELP.md`.
+  Drive, and **Calendar** APIs enabled, consent screen = External, and redirect URI
+  `http://localhost:8000/oauth2callback` on the OAuth client — that one URI is all the
+  app needs, and **no redirect URI should be added for port 9000** (Claude's background
+  server runs there, and leaving it unregistered is deliberate). While the consent screen
+  is still in **Testing**, each account also has to be added as a **Test user**.
+  See `SPEC.md` §7 and `HELP.md`.
 - Node.js 18+ is only needed to **build** the app, not to run the installed one.
 
 ## Install (end users)

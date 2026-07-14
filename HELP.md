@@ -56,7 +56,8 @@ primed here. That's the whole trick.
 
 1. Go to **https://github.com/taipeiviking/MultiMCP/releases/latest**
 2. Under **Assets**, download the installer **`Google-Workspace-Manager-Setup-<version>.exe`**
-   (the newest version — e.g. `…-0.3.8.exe`).
+   (the `<version>` is whatever the latest release happens to be — that page always
+   shows the newest one).
 3. Run it. Because the file was **downloaded from the internet**, Windows
    **SmartScreen** may show a one-time *"Windows protected your PC"* notice (this
    happens for any app without a paid code-signing certificate, signed or not).
@@ -116,6 +117,12 @@ In the [Google Cloud Console](https://console.cloud.google.com/):
 > If a Workspace account isn't on the Test users list, its sign-in will be blocked
 > at Google's consent screen.
 
+> **Don't add a redirect URI for port 9000.** Port 8000 is the app's sign-in, and it is
+> the only one that needs registering. Port 9000 belongs to the server Claude runs in the
+> background, and leaving it unregistered is deliberate: it means a background process can
+> never quietly complete a Google sign-in — possibly for the wrong account — behind your
+> back. Signing in is always something you do yourself, in the app.
+
 ---
 
 <a id="adding--signing-in-an-account"></a>
@@ -145,14 +152,25 @@ cached token file).
 
 Click **Write config** in the status strip. The app:
 - backs up your existing `claude_desktop_config.json` first,
-- **merges** in a `google_workspace` server entry (never clobbering your other MCP
+- **merges** in a **`MultiMCP`** server entry (never clobbering your other MCP
   servers),
 - writes the absolute path to the **bundled** `uvx` (Claude launches with a minimal
   PATH, so a bare `uvx` would fail — this is why the engine is bundled and referenced
   by full path).
 
-Then **fully quit and reopen Claude Desktop**. You'll find **google_workspace**
-under Connectors / tools.
+Then **fully quit and reopen Claude Desktop**. You'll find **MultiMCP** under
+Connectors / tools.
+
+> **The connector was renamed in v0.4.0.** It used to appear in Claude as
+> **`google_workspace`**; it is now **`MultiMCP`**. The name Claude shows is simply
+> the key used in `claude_desktop_config.json`, so renaming it is just a config
+> change. The app **deletes the old `google_workspace` entry** when it writes the new
+> one — automatically, on launch — so you won't end up with two connectors listed.
+
+> **The app also repairs the entry when it drifts.** On launch it re-checks the
+> settings the connector depends on (and re-adds the whole entry if something else,
+> such as a Claude Desktop reinstall, replaced the config file and dropped it). That
+> is how fixes like the one in v0.4.0 reach a PC that was already set up.
 
 > **Security note:** for a confidential ("Web") OAuth client, the client **secret**
 > is written into `claude_desktop_config.json` so Claude's own server can refresh
@@ -295,8 +313,10 @@ choose:
 - **Import & overwrite** — also replaces existing token files with the ones from the
   backup (use if the backup is newer/authoritative).
 
-Then click **Write config** and restart Claude Desktop. That's it — no re-auth needed
-as long as the tokens are still within their ~7-day window.
+Then click **Write config** and restart Claude Desktop. That's it — no re-auth needed, as
+long as the sign-ins in the file are still valid. (If your OAuth app is still in
+**Testing**, those sign-ins expire after ~7 days, so an older export may need a re-auth or
+two; once it's [published to production](#long-lived), they keep working.)
 
 > ⚠️ **Treat the export file like a password.** It carries your client secret and
 > live refresh tokens — anyone with the file can act as those accounts. It's written
@@ -332,25 +352,69 @@ as long as the tokens are still within their ~7-day window.
   one `<email>.json` per account. The folder is ACL-locked to your user on first
   setup.
 - **App settings** (Client ID, credentials-dir path, autostart pref) →
-  `%APPDATA%\google-workspace-manager\settings.json`.
+  `%APPDATA%\google-workspace-manager\settings.json`, with a rolling backup alongside it
+  (`settings.json.bak`). Since v0.3.9 this file is written **atomically**, so a crash or an
+  unclean shutdown can't leave it half-written; if it is ever found damaged, the app
+  restores it from the backup automatically.
 - **Account list** → `%APPDATA%\google-workspace-manager\accounts.json`.
 - **Debug log** → `%APPDATA%\google-workspace-manager\logs\app.log` (secrets and
   tokens are redacted).
 - **Electron hardening:** context isolation on, node integration off, sandbox on;
-  OAuth always opens in the system browser, never in an app window.
+  OAuth always opens in the system browser, never in an app window — and only when *you*
+  start a sign-in from the app. Claude's background server is deliberately given no way to
+  open a browser at all (a small do-nothing stand-in under
+  `%LOCALAPPDATA%\MultiMCP\`), which is why it can no longer surprise you with sign-in tabs.
 
 ---
 
 <a id="troubleshooting"></a>
 ## Troubleshooting
 
+**Claude opens Google sign-in tabs saying "Access blocked" / "Error 400: redirect_uri_mismatch"**
+— this was a bug, and it is **fixed in v0.4.0**. Update to the latest release, then
+**fully quit and reopen Claude Desktop** — the fix lives in the connector entry that
+the app rewrites on launch, and a Claude that is still running will keep using the
+old one until it is properly restarted (tray → Quit, not just closing the window).
+
+What you were seeing: as soon as a single Claude conversation touched a **second**
+account, a browser tab opened for it — one tab per extra account — each landing on
+Google's *"Access blocked: this app's request is invalid — Error 400:
+redirect_uri_mismatch"* page. Because it was triggered by **using more than one
+account**, which is the entire point of this app, it fired in practically every real
+session. Whichever account you happened to use first worked fine; every later one
+produced a tab.
+
+The cause was in the underlying `workspace-mcp` server, not in your Google setup and
+**not** an expired sign-in: the server locked its session to the first account whose
+token it refreshed, and then wrongly reported every *other* account as "not signed
+in" — even though those accounts' tokens had just refreshed successfully. Believing
+you were signed out, it tried to send you to Google to sign in again.
+
+The fix tells the server to look each account up by the email address the request was
+actually for, instead of binding the whole session to one of them. **All of your
+accounts keep working exactly as before** — nothing is limited to a single account.
+
+As a second line of defence, Claude's background server is now started in a way that
+makes it **physically unable to open a browser tab at all**, so even a genuinely dead
+sign-in can no longer surprise you with one. See the next entry for what happens
+instead.
+
+**An account genuinely needs signing in again** — you will **not** get a browser tab
+from Claude. Instead the tray app checks whether the sign-in really is dead, and if it
+is, raises a **Windows notification**. Open the dashboard, find the account showing
+**re-auth needed**, and click **Re-auth** — that sign-in opens a real browser window,
+from the app, which is exactly where it belongs (it's the only place you can see which
+account you're approving).
+
 **`Engine missing`** — the bundled engine should make this rare. Fully quit the app
 (tray → Quit) and relaunch so it re-checks. If you run from source in dev, run
 `npm run fetch-uv` once to populate `vendor/uv` (or install system `uv`).
 
-**`redirect_uri_mismatch` in the browser** — the redirect URI on your OAuth client
-must be exactly `http://localhost:8000/oauth2callback`. Newly added URIs can take a
-few minutes to propagate.
+**`redirect_uri_mismatch` while signing in *from the app*** — this is the different,
+ordinary case: the redirect URI on your OAuth client must be exactly
+`http://localhost:8000/oauth2callback`. Newly added URIs can take a few minutes to
+propagate. (If the tab came from **Claude** rather than from clicking **Sign in** or
+**Re-auth** in the app, see the first entry above instead.)
 
 **`access_denied` / "app not verified"** — make sure the account is added as a
 **Test user** on the consent screen, and click **Advanced → Go to … (unsafe)**.
@@ -362,13 +426,15 @@ few minutes to propagate.
 quit** Claude Desktop (tray → Quit) and reopen. Check Claude's own logs at
 `%APPDATA%\Claude\logs\`.
 
-**"Could not attach to MCP server google_workspace"** — a cold-start timeout: the first
+**"Could not attach to MCP server MultiMCP"** — a cold-start timeout: the first
 time a new `workspace-mcp` version runs, `uvx` installs it (~90 packages), which can
 exceed Claude's attach timeout. The tray app **pre-warms** this in the background (on
 launch + every 6h), so keep it running. If you still see it, **reopen Claude once
 more** — the first (failed) attach finishes the install, so the next attach is fast.
+(On versions before v0.4.0 the connector was called `google_workspace`, so the same
+message named that instead.)
 
-**"MCP google_workspace: Server disconnected"** — usually **not** a real failure. Claude
+**"MCP MultiMCP: Server disconnected"** — usually **not** a real failure. Claude
 shows this when a server it previously had is no longer connected — e.g. after the PC
 slept, or after Claude was quit/updated. The server re-spawns fine on the next request
 (check the connectors menu — the tools are still there). If it's **persistent**, the most
@@ -380,15 +446,33 @@ config at `%APPDATA%\Claude`, so nothing to reconfigure — just **Write config*
 fully **quit + reopen** Claude. **Step-by-step:** [docs/SWITCH_CLAUDE_BUILD.md](docs/SWITCH_CLAUDE_BUILD.md).
 Ref: [MCP debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
-**The "Connect your Google OAuth client" screen appears even though you're set up** — a
-boot-timing race (Windows Credential Manager briefly unavailable when the app autostarts
-hidden after login). Fixed in **v0.3.8**; on older versions, just fully **quit and reopen**
-the app. Your Client ID/secret/tokens are not lost. (Worst case, use **Import configuration
-from a file…** with your latest exported backup.)
+**The "Connect your Google OAuth client" screen appears even though you're set up** —
+**fixed in v0.3.9.** The real cause turned out to be worse than the timing race that
+v0.3.8 had guessed at: restarting the PC could leave `settings.json` truncated, and the
+app, unable to read it, would then quietly save an empty file back over it — erasing
+your Client ID for good. Settings are now written **atomically** and kept with a rolling
+backup, so an unclean shutdown can no longer damage the file; a damaged file is restored
+from the backup automatically, and if the app cannot read the file at all it now
+**refuses to overwrite it** rather than making things worse.
+
+If a settings file was already destroyed by an older version, the first-run screen now
+says so — *"Your settings appear to have been lost"* — instead of greeting you as a new
+user, and points you at **Import settings from a file…**, which restores everything from
+your last exported backup. (This is the reason to keep an export somewhere safe; see
+[Moving to another computer](#export-import).)
+
+Separately, **reinstalling Claude Desktop** replaces `claude_desktop_config.json` and
+used to silently drop the connector. Since v0.3.9 the app puts its entry back on launch
+on any PC where it wrote one before.
 
 **Port 8000 in use** — another process is using the OAuth callback port. Close it
-and retry the sign-in. (The app's sign-in uses **8000**; Claude's own server is pinned to
-**9000**, so they don't clash — v0.3.4+.)
+and retry the sign-in. (Sign-ins you start **in the app** use port **8000** — that is
+the only redirect URI registered on the OAuth client. Claude's background server is
+pinned to **9000**, so the two never clash. That server does still refresh tokens by
+itself — that's normal and needs no browser — but it deliberately has **no** registered
+redirect URI on 9000 and no way to open a browser, so it can never complete a Google
+consent screen on its own. Signing in is always something you do, visibly, from the
+app.)
 
 **Reveal log** opens `%APPDATA%\google-workspace-manager\logs\`. Attach `app.log`
 when reporting an issue (it's secret-redacted).
@@ -403,7 +487,8 @@ Uninstall from Windows **Settings → Apps**. To fully remove all data, also del
 - `%USERPROFILE%\.google_workspace_mcp\`
 - the `oauth_client_secret` entry under `google-workspace-manager` in
   Windows Credential Manager
-- the `google_workspace` block from `%APPDATA%\Claude\claude_desktop_config.json`
+- the `MultiMCP` block from `%APPDATA%\Claude\claude_desktop_config.json` (if the app
+  was last written by a version before v0.4.0, that block is called `google_workspace`)
 
 ---
 

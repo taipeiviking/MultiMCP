@@ -1,5 +1,12 @@
 # Claude Code — Project Kickoff Prompt: MultiMCP (Google Workspace Manager)
 
+> **Historical document — kept for the record, not current guidance.** This is the prompt that
+> started the project; the app has shipped and moved on since. Anything here that conflicts with
+> **[SPEC.md](SPEC.md)**, **[README.md](README.md)** or **[CHANGELOG.md](CHANGELOG.md)** is out of
+> date — those win. In particular, the "~7-day token expiry" constraint below only applies while
+> the OAuth app is in *Testing*, and ours is now published to production; and the connector is now
+> called **MultiMCP** in Claude, not `google_workspace`.
+
 Paste everything below the line into Claude Code from inside `C:\Users\class\git\MultiMCP`.
 
 ---

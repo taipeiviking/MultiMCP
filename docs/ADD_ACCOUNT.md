@@ -209,12 +209,24 @@ countdown.
 
 ## Use the new account in Claude
 
-You do **not** need to click **Write config** again — the shared `google_workspace` server
+You do **not** need to click **Write config** again — the shared **MultiMCP** server
 already reads every account in the credentials folder. Just **start a new Claude Desktop
 chat** (or fully quit and reopen Claude to be safe). Then name the account in your request:
 
-> *"Using google_workspace, search Gmail in `new.address@yourdomain.com` for invoices from
+> *"Using MultiMCP, search Gmail in `new.address@yourdomain.com` for invoices from
 > last month."*
+
+> **The connector is called MultiMCP.** It used to appear in Claude as *google_workspace*.
+> The app renames it for you the next time it starts, and removes the old entry, so you
+> won't end up with two connectors.
+
+**Claude never opens a sign-in tab.** Signing in always happens from the tray app (Part B
+above), and that's the only browser window you should ever see. If Claude's connector
+really does need an account signed in again, the app raises a **tray notification** and you
+re-auth from the app. Older versions could pop up Google sign-in tabs by themselves — often
+several at once, ending on *"Access blocked … Error 400: redirect_uri_mismatch"* — whenever
+a chat touched more than one account. That was a bug, and it is **fixed in v0.4.0**; if you
+still see it, update to the latest release.
 
 ---
 
@@ -222,14 +234,15 @@ chat** (or fully quit and reopen Claude to be safe). Then name the account in yo
 
 | Symptom | Fix |
 |---|---|
-| `redirect_uri_mismatch` in the browser | The OAuth client is missing the redirect URI `http://localhost:8000/oauth2callback` (Part A5). Newly added URIs can take a few minutes to apply. |
+| `redirect_uri_mismatch` in the browser, *after you clicked **Sign in** in the app* | The OAuth client is missing the redirect URI `http://localhost:8000/oauth2callback` (Part A5). Newly added URIs can take a few minutes to apply. (If the tab appeared **on its own** while you were chatting in Claude, see the last row instead.) |
 | `access_denied` / "App not verified" blocks you | In **Testing**, add the email as a **Test user** (B1). Then click **Advanced → Go to … (unsafe)** (B6). |
-| "Access blocked: app's request is invalid" / admin policy | The account's **Workspace admin** restricts apps — trust the Client ID in the Admin console (B2). |
+| "Access blocked: app's request is invalid" / admin policy, *when signing in from the app* | The account's **Workspace admin** restricts apps — trust the Client ID in the Admin console (B2). |
 | **"Port 8000 is in use"** at Sign in | Another process holds the sign-in port. Fully **quit + reopen Claude Desktop** (its server uses port 9000, leaving 8000 free), then retry. |
 | Card won't turn green | Finish consent fully (grant **all** scopes), then click **Check now**, or **Re-auth** the card. |
-| **"Could not attach to MCP server google_workspace"** in Claude | A cold-start timeout while `uvx` installs a new `workspace-mcp` version. Keep the tray app running (it pre-warms the cache on launch + every 6h); if it happens, **reopen Claude once more** — the next attach is fast. |
+| **"Could not attach to MCP server MultiMCP"** in Claude *(older versions said `google_workspace`)* | A cold-start timeout while `uvx` installs a new `workspace-mcp` version. Keep the tray app running (it pre-warms the cache on launch + every 6h); if it happens, **reopen Claude once more** — the next attach is fast. |
+| Google sign-in tabs open on their own while you're chatting in Claude | A bug in older versions, **fixed in v0.4.0** — install the [latest release](https://github.com/taipeiviking/MultiMCP/releases). Sign-in should only ever happen from the tray app. |
 
-More detail and where files live: see **[HELP.md](HELP.md)**.
+More detail and where files live: see **[HELP.md](../HELP.md)**.
 
 ---
 
