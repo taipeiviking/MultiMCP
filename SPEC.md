@@ -6,7 +6,7 @@
 > notifications and autostart; packages to a Windows NSIS installer. §8 documents the
 > UI as built. See HELP.md for the end-user guide.
 >
-> **Current: v0.4.0.** Recent hardening (see CHANGELOG.md for the full list):
+> **Current: v0.5.0.** Recent hardening (see CHANGELOG.md for the full list):
 > - **v0.3.5** — re-auth status is driven by a **live refresh-token check** against Google
 >   (not a fixed 7-day guess), plus a `productionMode` flag (manual checkbox + auto-learn)
 >   that drops the countdown; **pre-warms the uvx/workspace-mcp cache** (launch + every 6h)
@@ -32,32 +32,40 @@
 >   the background server physically cannot open a tab (§6d). Config repair now detects drift
 >   in **any** load-bearing env key, not just the port — without that, machines with an
 >   existing entry would never receive fixes like this one (§6a).
+> - **v0.5.0** — **OpenAI Codex** is supported as a second MCP client. A **Write Codex
+>   config** button merges an `[mcp_servers.MultiMCP]` table into `~/.codex/config.toml`
+>   (§6e). The same sign-ins are reused — Codex is pointed at the same credentials dir — so
+>   no account is re-authorized. Codex gets its **own** port (**9001**), because every MCP
+>   client spawns its own copy of the server. `config.toml` is a file the user and the Codex
+>   app both write, so it is edited **surgically** and never rewritten (§6f).
 >
-> Port design (v0.3.4; corrected in v0.4.0): the interactive **sign-in** uses port **8000**
-> (the only registered redirect URI); **Claude's** background server is pinned to **9000** so
-> the two never contend. This paragraph used to claim that Claude's background server never
-> performs an interactive consent. That was wrong, and it is precisely the assumption that
-> produced the v0.4.0 bug: the background server **can** reach the auth path and call
-> `webbrowser.open()` itself. It is now dealt with three ways: (a) `MCP_SINGLE_USER_MODE=1`
-> removes the spurious trigger; (b) `BROWSER` points at a no-op shim, so the server cannot
-> open a browser tab even when a token really is dead; and (c) port 9000 is deliberately
-> **not** registered as a redirect URI in Google Cloud, and must stay that way — a background
-> process silently completing a consent, possibly for the wrong account, is worse than a
-> visible failure. Multi-account remains fully supported (one shared credentials dir + one
-> server entry; the account is selected per tool call).
+> Port design (v0.3.4; corrected in v0.4.0; extended in v0.5.0): the interactive **sign-in**
+> uses port **8000** (the only registered redirect URI); **Claude's** background server is
+> pinned to **9000** and **Codex's** to **9001**, so no two ever contend (§6g). This paragraph
+> used to claim that Claude's background server never performs an interactive consent. That
+> was wrong, and it is precisely the assumption that produced the v0.4.0 bug: the background
+> server **can** reach the auth path and call `webbrowser.open()` itself. It is now dealt with
+> three ways: (a) `MCP_SINGLE_USER_MODE=1` removes the spurious trigger; (b) `BROWSER` points
+> at a no-op shim, so the server cannot open a browser tab even when a token really is dead;
+> and (c) ports 9000 and 9001 are deliberately **not** registered as redirect URIs in Google
+> Cloud, and must stay that way — a background process silently completing a consent, possibly
+> for the wrong account, is worse than a visible failure. Multi-account remains fully supported
+> (one shared credentials dir + one server entry per client; the account is selected per tool
+> call).
 
 ## 1. Purpose
 
 A local Windows desktop control panel that makes it easy and secure to connect
-**multiple Google Workspace accounts** (across different domains) to Claude Desktop
-for Gmail, Drive, and Calendar access — without hand-editing config files or
-forgetting how anything was set up.
+**multiple Google Workspace accounts** (across different domains) to Claude Desktop —
+and, as of v0.5.0, to **OpenAI Codex** — for Gmail, Drive, and Calendar access, without
+hand-editing config files or forgetting how anything was set up.
 
 The app does **not** reimplement the MCP server. It is a management/config layer
 that wraps the proven, MIT-licensed `workspace-mcp`
 (https://github.com/taylorwilsdon/google_workspace_mcp). That server does all the
 Google API + MCP work; this app owns credentials, per-account auth, status, and the
-Claude Desktop config.
+client config files (Claude Desktop's `claude_desktop_config.json` and Codex's
+`config.toml`).
 
 ## 2. Non-goals / honest constraints
 
@@ -75,6 +83,12 @@ Claude Desktop config.
   not try. Instead it **verifies each refresh token directly against Google** (a real
   `refresh_token` grant) — ground truth in either mode — and exposes a `productionMode`
   flag (manual checkbox + auto-learn) to drop the 7-day countdown. See §4 item 3.
+- **Cannot reach ordinary ChatGPT conversations.** The v0.5.0 Codex support covers the
+  **Codex** clients — the CLI, the IDE extension, and Codex inside the ChatGPT desktop app —
+  which all read `~/.codex/config.toml`. It does **not** reach ChatGPT itself, on the web or
+  on the chat side of that same desktop app: ChatGPT accepts only **remote** MCP servers
+  (SSE / streamable HTTP), and ours is a **local stdio** server. No configuration changes
+  that; see §6e.
 - Local only. No telemetry, no cloud, no remote server. Data path is:
   this machine → Google APIs.
 
@@ -88,7 +102,8 @@ Claude Desktop config.
 │   - Dashboard (5 accounts)            - credentials.js   │
 │   - Add / re-auth account             - accounts.js      │
 │   - Credentials setup                 - serverManager.js │
-│   - Server/diagnostics                - claudeConfig.js   │
+│   - Server/diagnostics                - claudeConfig.js  │
+│                                       - codexConfig.js   │
 └───────────────────────────────┬──────────────────────────┘
                                  │ spawns (for auth + diagnostics)
                                  ▼
@@ -99,18 +114,28 @@ Claude Desktop config.
                                  │ caches per-account tokens
                                  ▼
             %USERPROFILE%\.google_workspace_mcp\credentials\
+                    (ONE token store — every client below reads it)
 
 Claude Desktop  ── reads ──►  claude_desktop_config.json
         │  (our app writes this entry)
-        └── on each session, spawns its OWN stdio `uvx workspace-mcp`
+        └── on each session, spawns its OWN stdio `uvx workspace-mcp`  (port 9000)
             with the SAME credentials dir → reuses the tokens we primed.
+
+OpenAI Codex    ── reads ──►  ~/.codex/config.toml
+        │  (our app merges this table, §6e)
+        └── spawns ANOTHER stdio `uvx workspace-mcp`                   (port 9001)
+            with the SAME credentials dir → same sign-ins, no re-authorization.
 ```
 
 ### Key insight that makes this coherent
-Both (a) the transient server our app launches to perform sign-ins and (b) the stdio
-server Claude Desktop launches per session point at the **same** fixed
-`GOOGLE_MCP_CREDENTIALS_DIR`. Tokens primed through the app are therefore available
-to Claude automatically. There is one token store, one OAuth client, many accounts.
+The transient server our app launches to perform sign-ins, the stdio server Claude Desktop
+launches per session, and the stdio server Codex launches all point at the **same** fixed
+`GOOGLE_MCP_CREDENTIALS_DIR`. Tokens primed through the app are therefore available to every
+client automatically. There is one token store, one OAuth client, many accounts.
+
+The corollary is that each client gets its **own server process** — which is why each needs
+its own port (§6g), and why two clients refreshing the same account at the same instant is a
+real (if narrow) hazard (§9, token-write race).
 
 ## 4. Responsibilities (what the app actually does)
 
@@ -158,6 +183,12 @@ to Claude automatically. There is one token store, one OAuth client, many accoun
    over it**. The old code collapsed all of these into `return {}`, so a single bad read
    plus a read-modify-write save (even just moving the window) erased the Client ID for
    good.
+8. **Codex wiring (v0.5.0)** — a **Write Codex config** button merges an
+   `[mcp_servers.MultiMCP]` table (and its `[mcp_servers.MultiMCP.env]` sub-table) into
+   `~/.codex/config.toml` — or `$CODEX_HOME/config.toml` when `CODEX_HOME` is set. It points
+   Codex at the **same** credentials dir, so no account has to be signed in again; it gives
+   Codex its **own** port (§6g); and it edits the file **surgically**, because `config.toml`
+   belongs to the user and to the Codex app as much as to us (§6e, §6f).
 
 ## 5. Prerequisites the app must check / guide
 
@@ -334,15 +365,172 @@ accounts against Google for real**, and raises a tray notification only for the 
 whose token is genuinely dead. The user then re-auths from the app, which opens a real
 browser on the registered `:8000`. The tray app's own sign-in never gets this shim.
 
+### e) Codex config entry the app writes (v0.5.0)
+
+Target file: `~/.codex/config.toml` — or `$CODEX_HOME/config.toml` when `CODEX_HOME` is
+set. The dashboard's **Write Codex config** button (next to Claude's **Write config** row)
+merges this table in one click. No account is re-authorized, because the table points Codex
+at the same `GOOGLE_MCP_CREDENTIALS_DIR` and therefore the same token files.
+
+**Which OpenAI products this actually covers.** This is the most misunderstood part, so it is
+worth stating flatly:
+- **Works:** the **Codex CLI**, the **Codex IDE extension**, and **Codex inside the ChatGPT
+  desktop app**. All three read the same `~/.codex/config.toml`.
+- **Does not work:** ordinary **ChatGPT conversations** — on the web or on the chat side of
+  the desktop app. ChatGPT supports only **remote** MCP servers (SSE / streamable HTTP), and
+  ours is a **local stdio** server. There is no configuration that changes this.
+
+The exact TOML written (values elided; the `#` comments below the marker line are
+illustrative — the marker itself is the only comment the app writes):
+
+```toml
+# >>> MultiMCP (managed by Google Workspace Manager) - regenerated on write, do not edit
+[mcp_servers.MultiMCP]
+command = 'C:\Users\<you>\...\uvx.exe'      # bundled uvx; TOML literal string (see below)
+args = ['workspace-mcp', '--tools', 'gmail', 'drive', 'calendar']
+startup_timeout_sec = 120                   # integers, not strings — see Timeouts
+tool_timeout_sec = 300
+
+[mcp_servers.MultiMCP.env]
+GOOGLE_OAUTH_CLIENT_ID = '<client id>'
+GOOGLE_OAUTH_CLIENT_SECRET = '<client secret>'   # see §9; required for a Web client to refresh
+GOOGLE_MCP_CREDENTIALS_DIR = 'C:\Users\<you>\.google_workspace_mcp\credentials'
+WORKSPACE_MCP_CREDENTIALS_DIR = 'C:\Users\<you>\.google_workspace_mcp\credentials'
+OAUTHLIB_INSECURE_TRANSPORT = '1'
+WORKSPACE_MCP_PORT = '9001'
+PORT = '9001'
+WORKSPACE_MCP_BASE_URI = 'http://localhost'
+MCP_SINGLE_USER_MODE = '1'
+BROWSER = 'C:\Users\<you>\AppData\Local\MultiMCP\no-browser.cmd'
+```
+
+Three things about the encoding are load-bearing:
+- **Strings are emitted as TOML *literal* strings** — single-quoted (`'C:\Users\...'`) —
+  wherever the value allows it, which in practice is every value above. Windows paths are the
+  reason: in a double-quoted TOML string a backslash starts an escape sequence, so `C:\Users`
+  is at best a mangled path and at worst a parse error, whereas a literal string performs no
+  escape processing at all. A literal string cannot itself contain a `'`, a newline or a
+  control character, so `tomlEdit.tomlString()` falls back to a fully escaped double-quoted
+  string for any value that does — it is "literal when we can, escaped when we must", not
+  "literal always".
+- **Every value in the `env` table is a string**, quoted — including the numeric-looking ones
+  (`'9001'`, `'1'`). An environment variable is a string; a bare TOML integer here would be a
+  type error, not a convenience.
+- **The timeouts, by contrast, are bare integers** (`120`, `300`) on the server table itself,
+  not in `env` — they are Codex settings, not environment variables. They are compared back
+  **numerically**, because Codex's own TOML writer re-emits `120` as `120.0`; a strict
+  comparison would judge a healthy entry stale on every launch.
+
+**Why every env var is set explicitly.** Codex does **not** hand the server its own
+environment: it **clears** it (`env_clear`) and re-populates it from a small allowlist plus
+whatever this `env` table contains. Nothing is inherited. So each variable that §6a explains
+for Claude must be repeated here verbatim — and `BROWSER` above all. An **unset** `BROWSER` is
+not neutral: Python's `webbrowser` module simply falls through to the **real** browser, which
+is exactly the v0.4.0 bug (§6d) reappearing under a different client. With
+`MCP_SINGLE_USER_MODE=1` and the shim both present, Codex cannot reproduce the spurious
+sign-in tabs.
+
+**Timeouts.** `startup_timeout_sec = 120` and `tool_timeout_sec = 300` are not padding:
+- Codex's default startup timeout is **10 s**, which kills the server during a cold `uvx`
+  start (Codex's own bundled `node_repl` server uses 120 for the same reason).
+- Codex's default tool timeout is **60 s**, which a Gmail batch fetch can outrun.
+- Consequence for users: the **first** Codex tool call can take up to ~2 minutes while `uvx`
+  warms up. That is expected, not a hang.
+
+**Verifying the settings landed.** Codex **silently drops unknown config keys** — a misspelled
+key is a no-op, not an error, so nothing in the UI or the logs will complain. The only proof is
+to ask Codex what it parsed:
+
+```
+codex mcp get MultiMCP     # must show startup_timeout_sec: 120 and tool_timeout_sec: 300
+```
+
+The Codex CLI is **not on PATH**. It ships inside the desktop app at a version-hashed path
+that changes whenever Codex updates:
+
+```
+%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\codex.exe
+```
+
+(`codexConfig.detect()` scans those hashed directories for `codex.exe` — that, or the mere
+existence of `~/.codex`, is what decides whether the dashboard offers the button or the
+explanation of §8. Detection is deliberately generous: being wrong here must never block a
+user who *does* have Codex from writing their config, so an existing `MultiMCP` entry also
+counts as "installed".)
+
+**Staleness check and self-heal — with one deliberate difference from §6a.** Codex's entry has
+its own `CRITICAL_ENV` (`MCP_SINGLE_USER_MODE`, `BROWSER`, `WORKSPACE_MCP_PORT`,
+`GOOGLE_MCP_CREDENTIALS_DIR`, `GOOGLE_OAUTH_CLIENT_ID`) plus the two timeouts, and on launch a
+drifted or missing entry is rewritten exactly as Claude's is. The difference: the Codex heal
+runs **only on machines where the user has clicked Write Codex config at least once**, recorded
+as `codexConfigWritten` in settings. We never volunteer ourselves into a Codex setup the user
+never asked us to touch. The corollary — worth stating, because it surprises people — is that on
+a machine where the button *has* been clicked, hand-deleting our table from `config.toml` is
+undone at the next app launch; a permanent removal means uninstalling the app (or leaving the
+entry in place, which costs nothing if Codex never calls it).
+
+### f) The surgical TOML merge contract
+
+`config.toml` is **not our file**. The user writes it (model choice, plugins, project trust
+levels, other MCP servers) and so does the Codex app itself — Codex re-injects its own
+`node_repl` server on every launch. It is therefore **edited, never rewritten**. The contract:
+
+1. **Replace only our own table.** Every other byte survives — including comments, key order,
+   blank lines, and formatting we would not have chosen. We do not round-trip the file through
+   a serializer.
+2. **Validate before touching the disk.** The merged result is parsed and checked **in memory**
+   first. A file that would not parse is never written.
+3. **Back up.** A timestamped copy of the previous file is taken.
+4. **Write atomically** (temp file → rename), as with `settings.json` in §4 item 7.
+5. **Re-read and re-validate afterwards.** If the file on disk is not what we intended, the
+   **backup is restored**.
+6. **Refuse rather than guess.** If the file has a shape we cannot edit safely, the app says so
+   and changes nothing. A wrong edit to this file breaks the user's whole Codex setup; a refusal
+   costs them one manual paste.
+
+A single **opening marker comment** (`# >>> MultiMCP (managed by Google Workspace Manager) …`)
+is written above the block, so the user can see at a glance which part of their file is ours.
+There is deliberately **no closing sentinel**, as one might use to delimit a managed block.
+Codex's own writer **reorders tables** when it rewrites the file, which would strand a trailing
+sentinel somewhere else entirely and leave us deleting the wrong span. Removal is done
+**structurally**, by table path — the table header, not a marker, is the anchor we trust — so a
+closing sentinel would have bought nothing and cost that.
+
+Two shapes the editor handles, and one it refuses: the normal `[mcp_servers.MultiMCP]` header
+form; a file that already uses dotted keys (`mcp_servers.MultiMCP.command = …`), where the same
+form is kept; and a **root-level inline** `mcp_servers = { … }` table, which it refuses (that is
+the "shape we cannot edit safely" of point 6). A leading UTF-8 BOM is **preserved**, never
+silently stripped — changing the user's file encoding is not ours to do — but it is logged as a
+warning, because some TOML parsers reject one and it is a realistic Windows accident.
+
+### g) Port allocation
+
+Every MCP client spawns its **own** copy of the workspace-mcp server, so every client needs its
+own port:
+
+| Port | Used by | Registered as a redirect URI? |
+| ---- | ------- | ----------------------------- |
+| **8000** | The tray app's interactive sign-in (§6b) | **Yes** — the only registered redirect URI |
+| **9000** | Claude Desktop's background server (§6a) | **No — deliberately** |
+| **9001** | Codex's background server (§6e) | **No — deliberately** |
+
+Leaving 9000 and 9001 unregistered is a **safety interlock**, not an oversight: an OAuth flow
+started by a background server is then incapable of completing, so it fails visibly instead of
+silently obtaining consent — possibly for the wrong account, overwriting that account's token
+file (§9). **Never** tell users to register them. As with Claude, both `WORKSPACE_MCP_PORT` and
+the bare `PORT` are pinned, because the bare `PORT` is read first and a machine-level
+`PORT=8000` would otherwise steal the registered sign-in port.
+
 ## 7. Google Cloud one-time items still required
 
 1. Enable the **standard Google Calendar API** (`calendar-json.googleapis.com`).
 2. On the OAuth client (Web application), add redirect URI:
    `http://localhost:8000/oauth2callback`
    (keep the existing `https://claude.ai/api/mcp/auth_callback` too — harmless).
-   **Do NOT add `http://localhost:9000/oauth2callback`.** Port 9000 is Claude's
-   background server, and leaving it unregistered is a deliberate safety interlock:
-   any OAuth flow that server starts is then incapable of completing (§6a, §9).
+   **Do NOT add `http://localhost:9000/oauth2callback` or
+   `http://localhost:9001/oauth2callback`.** Port 9000 is Claude's background server and
+   9001 is Codex's, and leaving them unregistered is a deliberate safety interlock: any
+   OAuth flow either server starts is then incapable of completing (§6a, §6e, §6g, §9).
 3. Consent screen Audience = External. While it is in **Testing**, all 5 emails must be
    added as Test users; the app is now **published to production**, so new accounts no
    longer need pre-listing (and sign-ins no longer expire weekly — see §2).
@@ -358,7 +546,12 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs.
   against Google on demand); account cards (email, status dot, live
   "connected ✓ · verified Xm ago" / Testing-mode countdown / "re-auth needed",
   **Re-auth** + **Remove**); a Claude Desktop config strip ("in sync" shows a green
-  **✓ Done**, otherwise **Write config**); a mode-aware re-auth note; an **"OAuth app
+  **✓ Done**, otherwise **Write config**); directly below it the **Codex strip** — the
+  same three states with a **Write Codex config** button, which merges the
+  `[mcp_servers.MultiMCP]` table into `~/.codex/config.toml` (§6e), and, when Codex is
+  **not** detected on the machine, a one-line explanation instead of a dead button
+  (most users have never heard of Codex; a greyed-out control with no reason attached
+  just looks broken); a mode-aware re-auth note; an **"OAuth app
   published to production"** checkbox (drops the 7-day countdown; auto-ticks once a
   token outlives 7 days); a **Start with Windows** checkbox (default on); a Debug-log
   row with a **View log** button (in-app modal viewer).
@@ -403,18 +596,28 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs.
   (`contextBridge`). Renderer never touches the filesystem or child processes
   directly — only through IPC.
 - Open external URLs (OAuth) in the system browser, not in an Electron window — but only
-  from the tray app's own, user-initiated sign-in. Claude's **background** server must
-  never open a browser: it gets a no-op `BROWSER` shim (§6d), and its port (9000) is
-  deliberately left out of the OAuth client's redirect URIs (§7) so that any consent flow
-  it does manage to start cannot complete. A background process silently obtaining
-  consent — possibly, with `prompt=select_account`, for the *wrong* account, overwriting
-  that account's token file — is worse than a visible failure.
+  from the tray app's own, user-initiated sign-in. The **background** servers — Claude's and
+  Codex's alike — must never open a browser: each gets a no-op `BROWSER` shim (§6d, §6e), and
+  their ports (9000 and 9001) are deliberately left out of the OAuth client's redirect URIs
+  (§7) so that any consent flow they do manage to start cannot complete. A background process
+  silently obtaining consent — possibly, with `prompt=select_account`, for the *wrong* account,
+  overwriting that account's token file — is worse than a visible failure.
 - Decision (RESOLVED): the stdio server Claude Desktop launches needs
   `GOOGLE_OAUTH_CLIENT_SECRET` to refresh tokens, and a Python process cannot read
   Windows Credential Manager. For our confidential **Web** OAuth client the secret
   must therefore be injected into `claude_desktop_config.json` (readable by the
   current user). Implemented as a setting `injectSecretIntoConfig` (default
   `true`); setting it `false` omits the secret but breaks refresh for a Web client.
+  The **same trade-off applies verbatim to Codex**: the secret is written into
+  `config.toml` (§6e) for the same reason, because Codex's stdio server is the same Python
+  server with the same refresh requirement.
+- **Known limitation — the token-write race between two clients (v0.5.0).** Claude and Codex
+  share **one** credentials directory, and `workspace-mcp` writes token files
+  **non-atomically**: no lock, truncate-then-write. If both clients refresh the **same**
+  account at the **same instant**, that account's token file can be left corrupt and the
+  account will have to be signed in again from the tray app. The window is narrow, but it is
+  real — and running both clients is precisely what makes it reachable. It is stated here
+  rather than papered over; a fix belongs upstream, in how the server writes those files.
 - Credential file format (confirmed, workspace-mcp 1.21.1): one JSON file per
   account named `<urlencoded-email>.json` (plain `<email>.json` for ordinary
   emails) in `GOOGLE_MCP_CREDENTIALS_DIR`, fields `token, refresh_token,

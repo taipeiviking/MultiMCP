@@ -1,10 +1,11 @@
 # MultiMCP — Google Workspace Manager
 
 A local Windows desktop control panel that connects **multiple Google Workspace
-accounts** to Claude Desktop (Gmail, Drive, Calendar) without hand-editing config
-files. It wraps the proven [`workspace-mcp`](https://github.com/taylorwilsdon/google_workspace_mcp)
+accounts** to your AI client (Gmail, Drive, Calendar) without hand-editing config
+files. **Works with Claude Desktop and OpenAI Codex** — one set of sign-ins serves
+both. It wraps the proven [`workspace-mcp`](https://github.com/taylorwilsdon/google_workspace_mcp)
 server — this app handles credentials, per-account sign-in, status, and writing the
-Claude Desktop config.
+client config.
 
 ## ⬇️ Download & install
 
@@ -19,8 +20,14 @@ Claude Desktop config.
    certificate), click **More info → Run anyway**. Installs per-user; no admin needed.
 3. Launch the app (the **uv engine is bundled — no separate install needed**),
    enter your Google OAuth Client ID + Secret once (or **Import** a config file from
-   another computer), add each account and **Sign in**, click **Write config**, and
-   restart Claude Desktop.
+   another computer), add each account and **Sign in**, click **Write config** (and/or
+   **Write Codex config**), and restart the AI client.
+
+> **New in v0.5.0 — OpenAI Codex support.** Next to the Claude **Write config** button there
+> is now a **Write Codex config** button, which adds the same connector to OpenAI Codex in
+> one click. There is nothing to re-authorize: Codex is pointed at the same credentials, so
+> it reuses the sign-ins you already made. Details:
+> [Connecting to OpenAI Codex](#-connecting-to-openai-codex).
 
 > **New in v0.4.0 — worth knowing if you're upgrading.** The connector now appears in Claude
 > as **MultiMCP** (it used to be called `google_workspace`; the app removes the old entry when
@@ -35,8 +42,10 @@ What changed in each version: **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## 🔌 Connecting to Claude Desktop
 
-The whole point of this app is to wire your Google accounts into **Claude Desktop**.
-You do that from the app — you never hand-edit Claude's config.
+Wiring your Google accounts into **Claude Desktop** is one click from the app — you never
+hand-edit Claude's config. (Using **OpenAI Codex** instead, or as well? See
+[Connecting to OpenAI Codex](#-connecting-to-openai-codex) below; the two can share the
+same sign-ins.)
 
 1. **Finish setup in the app first** — enter your Google OAuth **Client ID + Secret**
    once, **Add** each account, and **Sign in** (each opens your system browser; grant
@@ -85,6 +94,49 @@ server"** right after a `workspace-mcp` update is a cold-start timeout — the a
 pre-warms the engine in the background, and reopening Claude once more resolves it. See
 [Troubleshooting](HELP.md#troubleshooting) in HELP.md.
 
+## 🤖 Connecting to OpenAI Codex
+
+Codex reads the **same sign-ins** as Claude, so there is nothing to re-authorize.
+
+1. **Finish setup in the app first** — accounts added, signed in, cards 🟢 green.
+2. **Click `Write Codex config`** — the row just below Claude's **Write config** on the
+   dashboard (if Codex isn't installed, that row says so instead of offering a button). The
+   app merges a `MultiMCP` entry into `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`).
+   The edit is surgical: it backs the file up first and leaves every other byte intact — your
+   model, plugins, project trust levels, other MCP servers, even your comments. If it ever
+   meets a file it cannot edit safely, it refuses and says so rather than guessing.
+3. **Restart Codex.** Tool names appear with a prefix, e.g. `mcp__MultiMCP__search_gmail_messages`.
+
+**Which OpenAI products this works with** — the most misunderstood part:
+
+- ✅ **Codex CLI**, the **Codex IDE extension**, and **Codex inside the ChatGPT desktop app**.
+  All three read the same `~/.codex/config.toml`.
+- ❌ **Ordinary ChatGPT conversations** — the website, and the chat side of the desktop app.
+  ChatGPT can only talk to *remote* MCP servers (SSE / streamable HTTP); this is a local one.
+
+**Verify it landed.** Codex silently ignores config keys it doesn't recognize, so a bad key is
+a no-op rather than an error. One command proves the settings took:
+
+```powershell
+codex mcp get MultiMCP
+```
+
+It must report `startup_timeout_sec: 120` and `tool_timeout_sec: 300`. (Codex's CLI isn't on
+your PATH — it ships inside the desktop app at
+`%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\codex.exe`, and the hash changes when Codex updates.)
+
+> **The first Codex tool call can take up to ~2 minutes** while `uvx` warms the server up.
+> That's expected, not a hang — and it's why the app sets those generous timeouts: Codex's
+> 10-second default would kill the server mid-start.
+
+> ⚠️ **Running Claude and Codex at the same time?** They share one credentials folder, and
+> `workspace-mcp` writes token files without locking. If both clients happen to refresh the
+> *same* account at the very same instant, that account's token file can be corrupted and
+> you'll have to sign it in again. A narrow window, but a real one.
+
+The full walkthrough — how `config.toml` is edited, and how to remove the entry again — is in
+[HELP.md → Using it from OpenAI Codex](HELP.md#codex).
+
 ## 💻 Use it on a second computer (export / import)
 
 Already set up on one PC and want the same accounts on your laptop? You don't have to
@@ -122,8 +174,10 @@ review the summary, and choose:
 - **Import & overwrite** — also replaces existing sign-in tokens with the ones from the
   file (use when the file is the newer/authoritative copy).
 
-Then click **Write config** and restart Claude Desktop. As long as the imported sign-ins are
-still valid, no re-auth is needed; if one is stale, just click **Re-auth** for that account.
+Then click **Write config** and restart Claude Desktop (and, if you use Codex on this PC,
+**Write Codex config** too — unless that strip already reads **✓ Done**). As long as the
+imported sign-ins are still valid, no re-auth is needed; if one is stale, just click
+**Re-auth** for that account.
 (Sign-ins made while the OAuth app is in **Testing** mode expire after ~7 days, so an older
 export may need a re-auth or two.)
 
@@ -151,7 +205,9 @@ export may need a re-auth or two.)
   only when Google actually rejects a token.
 - Writes/merges the `MultiMCP` entry into `claude_desktop_config.json` (backs up first;
   never clobbers other MCP servers, and clears out the old `google_workspace` entry if
-  one is left over from an earlier version).
+  one is left over from an earlier version) — and, with **Write Codex config**, the same
+  connector into OpenAI Codex's `config.toml`, edited surgically so nothing else in that
+  file changes.
 - One-click **Re-auth** for any account. In **Testing** mode it shows the ~7-day
   countdown; tick **"OAuth app published to production"** (or let it auto-detect once a
   token outlives 7 days) to drop the countdown — see
@@ -160,8 +216,8 @@ export may need a re-auth or two.)
   a native notification before an account goes stale. Optional **Start with
   Windows**. In-app **View log** viewer for diagnostics.
 
-> The tray app does **not** need to be running for Claude to use your accounts —
-> Claude Desktop launches its own `uvx workspace-mcp` per session from the shared
+> The tray app does **not** need to be running for Claude or Codex to use your accounts —
+> each client launches its own `uvx workspace-mcp` per session from the shared
 > credentials dir. The tray app exists to prime sign-ins and warn before expiry.
 
 ## Prerequisites
@@ -172,8 +228,9 @@ export may need a re-auth or two.)
 - A Google Cloud project with: OAuth client (Web application), **standard** Gmail,
   Drive, and **Calendar** APIs enabled, consent screen = External, and redirect URI
   `http://localhost:8000/oauth2callback` on the OAuth client — that one URI is all the
-  app needs, and **no redirect URI should be added for port 9000** (Claude's background
-  server runs there, and leaving it unregistered is deliberate). While the consent screen
+  app needs, and **no redirect URI should be added for ports 9000 or 9001** (Claude's and
+  Codex's background servers run there, and leaving them unregistered is deliberate).
+  While the consent screen
   is still in **Testing**, each account also has to be added as a **Test user**.
   See `SPEC.md` §7 and `HELP.md`.
 - Node.js 18+ is only needed to **build** the app, not to run the installed one.
@@ -182,8 +239,9 @@ export may need a re-auth or two.)
 Grab it from the **[latest GitHub Release](https://github.com/taipeiviking/MultiMCP/releases/latest)**
 (direct link + SmartScreen note in [Download & install](#️-download--install) above).
 The installer creates Start-menu + desktop shortcuts. Launch it, enter your OAuth
-Client ID/Secret once, add each account and Sign in, click **Write config**, then
-restart Claude Desktop. Tick **Start with Windows** to keep it in the tray on login.
+Client ID/Secret once, add each account and Sign in, click **Write config** (and
+**Write Codex config** if you use OpenAI Codex), then restart the client. Tick
+**Start with Windows** to keep it in the tray on login.
 
 ## Develop
 ```powershell
@@ -233,8 +291,8 @@ src/
 ```
 
 ## How it works (one OAuth client, many accounts)
-Both the transient sign-in server this app launches and the stdio server Claude
-Desktop launches point at the **same** fixed `GOOGLE_MCP_CREDENTIALS_DIR`. Tokens
-primed here are therefore available to Claude automatically. There is one token
+The transient sign-in server this app launches, and the stdio servers Claude Desktop and
+Codex launch, all point at the **same** fixed `GOOGLE_MCP_CREDENTIALS_DIR`. Tokens
+primed here are therefore available to both clients automatically. There is one token
 store, one OAuth client, many accounts. See `SPEC.md` §3 and §6b for the confirmed
 `start_google_auth` flow.

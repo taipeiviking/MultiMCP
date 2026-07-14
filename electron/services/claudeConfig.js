@@ -79,6 +79,42 @@ function readConfig() {
   }
 }
 
+// Same file, but for the WRITE path, where "I couldn't read it" and "it isn't there"
+// must not be confused. writeServerEntry merges into whatever it reads and writes the
+// result back, so treating a locked or permission-denied file as an empty config would
+// silently drop every other MCP server the user has. Missing -> "", anything else throws.
+function readRawForWrite() {
+  try {
+    return fs.readFileSync(configPath(), "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return "";
+    throw e;
+  }
+}
+
+// Prove the bytes that actually LANDED on disk are good - not just the string we meant
+// to write. Catches a truncated write, an encoding mangle, or an AV product rewriting
+// the file behind us. Anything returned here triggers a rollback to the backup.
+function verifyOnDisk(p, entry, preservedServers) {
+  let onDisk;
+  try {
+    onDisk = JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch (e) {
+    return [`it does not re-read as valid JSON (${e.message})`];
+  }
+  const problems = [];
+  const servers = (onDisk && onDisk.mcpServers) || {};
+  if (JSON.stringify(servers[SERVER_KEY]) !== JSON.stringify(entry)) {
+    problems.push(`the "${SERVER_KEY}" entry is missing or is not what we wrote`);
+  }
+  for (const k of LEGACY_SERVER_KEYS) {
+    if (servers[k]) problems.push(`the legacy "${k}" entry is still present`);
+  }
+  const lost = preservedServers.filter((k) => !servers[k]);
+  if (lost.length) problems.push(`other MCP servers were lost: ${lost.join(", ")}`);
+  return problems;
+}
+
 async function buildEntry() {
   const { clientId, credentialsDir } = await credentials.getClientConfig();
   const clientSecret = await credentials.getClientSecret();
@@ -256,19 +292,30 @@ async function healServerEntryIfStale() {
 
 async function writeServerEntry() {
   const p = configPath();
-  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const raw = readRawForWrite(); // throws (rather than returning "") if the file is unreadable
 
-  // Back up before touching.
-  let backup = null;
-  if (fs.existsSync(p)) {
-    backup = `${p}.bak-${Date.now()}`;
-    fs.copyFileSync(p, backup);
+  // A file that exists but does not parse is already broken for Claude, and there is
+  // no server list left in it to preserve - so rewriting it is the repair, not the
+  // damage. But say so loudly: corrupt bytes here are exactly what the old truncating
+  // write left behind on an unclean shutdown, and the backup below keeps them.
+  let cfg = {};
+  if (raw.trim()) {
+    try {
+      cfg = JSON.parse(raw);
+    } catch (e) {
+      cfg = null;
+    }
+    if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) {
+      log.warn("claudeConfig", "claude_desktop_config.json is not a valid JSON object - rewriting it", {
+        path: p,
+        bytes: raw.length,
+      });
+      cfg = {};
+    }
   }
 
-  const cfg = readConfig();
   cfg.mcpServers = cfg.mcpServers || {};
   const entry = await buildEntry();
-  const existingServers = Object.keys(cfg.mcpServers);
 
   // Drop any entry we used to write under an older name. Without this the rename
   // leaves BOTH keys behind: Claude lists two connectors and spawns two servers,
@@ -277,7 +324,47 @@ async function writeServerEntry() {
   for (const k of removed) delete cfg.mcpServers[k];
 
   cfg.mcpServers[SERVER_KEY] = entry; // merge: only our key is replaced
-  fs.writeFileSync(p, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  const preserved = Object.keys(cfg.mcpServers).filter((k) => k !== SERVER_KEY);
+
+  // Back up before touching.
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  let backup = null;
+  if (fs.existsSync(p)) {
+    backup = `${p}.bak-${Date.now()}`;
+    fs.copyFileSync(p, backup);
+  }
+
+  // Atomic write (credentials.js writeSettings convention, mirrored in codexConfig.js):
+  // a plain writeFileSync TRUNCATES the target in place, so a crash, power loss or
+  // unclean shutdown mid-write leaves a zero-length or half-written config - destroying
+  // our entry AND every other MCP server the user had. That is the same failure mode
+  // v0.3.9 fixed for settings.json, and this file had it too. Write a temp file, flush
+  // it to disk, then rename over the primary (rename is atomic on NTFS).
+  const tmp = `${p}.tmp`;
+  const fd = fs.openSync(tmp, "w", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(cfg, null, 2));
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, p);
+
+  // Re-read from DISK and check what landed. Only here can a rollback be needed, and
+  // leaving the user's file worse than we found it is the one outcome we will not have.
+  const problems = verifyOnDisk(p, entry, preserved);
+  if (problems.length) {
+    if (backup) fs.copyFileSync(backup, p);
+    else fs.unlinkSync(p); // we created it; leave the machine as we found it
+    log.error("claudeConfig", "post-write validation failed - rolled back", {
+      path: p,
+      backup,
+      problems,
+    });
+    throw new Error(
+      `Wrote ${p} but it did not verify; restored the previous file. ${problems.join("; ")}`
+    );
+  }
 
   // Remember that this machine's Claude config is ours to maintain, so that a
   // later Claude reinstall (which wipes the file) can be healed automatically.
@@ -293,9 +380,7 @@ async function writeServerEntry() {
     envKeys: Object.keys(entry.env),
     secretInjected: Object.prototype.hasOwnProperty.call(entry.env, "GOOGLE_OAUTH_CLIENT_SECRET"),
     browserSuppressed: !!entry.env.BROWSER,
-    preservedServers: existingServers.filter(
-      (k) => k !== SERVER_KEY && !LEGACY_SERVER_KEYS.includes(k)
-    ),
+    preservedServers: preserved,
   });
 
   return { ok: true, path: p, note: "Restart Claude Desktop to load changes." };

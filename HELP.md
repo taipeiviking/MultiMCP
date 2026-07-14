@@ -1,10 +1,10 @@
 # Google Workspace Manager — Help
 
 A local Windows control panel that connects **multiple Google Workspace accounts**
-to **Claude Desktop** for Gmail, Drive, and Calendar — without hand-editing config
-files. It wraps the open-source [`workspace-mcp`](https://github.com/taylorwilsdon/google_workspace_mcp)
+to **Claude Desktop** and **OpenAI Codex** for Gmail, Drive, and Calendar — without
+hand-editing config files. It wraps the open-source [`workspace-mcp`](https://github.com/taylorwilsdon/google_workspace_mcp)
 server: this app owns your credentials, per-account sign-in, status, and writing
-the Claude Desktop config.
+the config files those clients read.
 
 > **Everything stays on your machine.** No telemetry, no cloud, no remote server.
 > Your data path is: this PC → Google's APIs. The OAuth client secret is stored in
@@ -21,6 +21,7 @@ the Claude Desktop config.
 - [Google Cloud setup](#google-cloud-setup)
 - [Adding & signing in an account](#adding--signing-in-an-account)
 - [Writing the Claude Desktop config](#writing-the-claude-desktop-config)
+- [Using it from OpenAI Codex](#codex)
 - [The ~7-day re-auth and notifications](#the-7-day-re-auth)
 - [Make sign-ins long-lived (stop the 7-day re-auth)](#long-lived)
 - [The tray icon & background mode](#tray--background)
@@ -45,9 +46,14 @@ Claude Desktop, in turn, launches its **own** `workspace-mcp` per chat session,
 pointed at the **same** shared folder — so it automatically reuses the tokens you
 primed here. That's the whole trick.
 
-> **You do not need to keep this app open for Claude to use your accounts.**
-> Claude spawns its own server each session. This app exists to (a) do the
-> sign-ins, (b) write the Claude config, and (c) **warn you before tokens expire**.
+**OpenAI Codex works exactly the same way.** Since v0.5.0 the app can also write a
+Codex config entry, pointed at that same shared folder. Codex therefore reuses the
+identical sign-ins — there is nothing to authorize a second time. See
+[Using it from OpenAI Codex](#codex).
+
+> **You do not need to keep this app open for Claude or Codex to use your accounts.**
+> Each client spawns its own server. This app exists to (a) do the sign-ins,
+> (b) write the client configs, and (c) **warn you before tokens expire**.
 
 ---
 
@@ -79,8 +85,9 @@ primed here. That's the whole trick.
 2. **Enter your Google OAuth Client ID + Secret** (Credentials screen). The secret
    goes into Windows Credential Manager; the Client ID into local settings.
 3. **Add each account** and click **Sign in** — complete consent in the browser.
-4. Click **Write config** to wire up Claude Desktop.
-5. **Restart Claude Desktop.**
+4. Click **Write config** to wire up Claude Desktop. If you use OpenAI Codex, also click
+   **Write Codex config** — see [Using it from OpenAI Codex](#codex).
+5. **Restart Claude Desktop** (and Codex, if you configured it).
 
 ---
 
@@ -117,11 +124,12 @@ In the [Google Cloud Console](https://console.cloud.google.com/):
 > If a Workspace account isn't on the Test users list, its sign-in will be blocked
 > at Google's consent screen.
 
-> **Don't add a redirect URI for port 9000.** Port 8000 is the app's sign-in, and it is
-> the only one that needs registering. Port 9000 belongs to the server Claude runs in the
-> background, and leaving it unregistered is deliberate: it means a background process can
-> never quietly complete a Google sign-in — possibly for the wrong account — behind your
-> back. Signing in is always something you do yourself, in the app.
+> **Don't add a redirect URI for port 9000 or 9001.** Port 8000 is the app's sign-in, and
+> it is the only one that needs registering. Port 9000 belongs to the server Claude runs in
+> the background, and port 9001 to the one Codex runs; leaving both unregistered is
+> deliberate: it means a background process can never quietly complete a Google sign-in —
+> possibly for the wrong account — behind your back. Signing in is always something you do
+> yourself, in the app.
 
 ---
 
@@ -176,6 +184,141 @@ Connectors / tools.
 > is written into `claude_desktop_config.json` so Claude's own server can refresh
 > tokens. That file is readable by your Windows user. This is required for a Web
 > client — there's no way for Claude's Python process to read Credential Manager.
+
+---
+
+<a id="codex"></a>
+## Using it from OpenAI Codex
+
+**New in v0.5.0.** The same accounts, the same sign-ins, now available in OpenAI
+Codex as well.
+
+On the dashboard, just below the Claude **Write config** row, there is a Codex row.
+Click **Write Codex config**. That single click merges an `[mcp_servers.MultiMCP]`
+table (and its `[mcp_servers.MultiMCP.env]` sub-table) into your Codex configuration
+file at `~/.codex/config.toml` — or `$CODEX_HOME/config.toml`, if you've set that
+variable. Then restart Codex.
+
+(If Codex isn't installed on this PC, that row simply says so — there is no button to
+press and nothing you need to do.)
+
+**You do not sign anything in again.** Codex is pointed at the *same* credentials
+folder as Claude, so it reuses the exact same token files. Every account that is
+green in this app is immediately usable from Codex.
+
+In Codex, the tools appear with a prefix — `mcp__MultiMCP__search_gmail_messages`,
+and so on.
+
+### Which OpenAI products this actually works with
+
+This is the part people get wrong, so it's worth being precise:
+
+| Product | Works? |
+|---|---|
+| **Codex CLI** | ✅ Yes |
+| **Codex IDE extension** | ✅ Yes |
+| **Codex inside the ChatGPT desktop app** | ✅ Yes |
+| **Ordinary ChatGPT conversations** (chatgpt.com, or the chat side of the desktop app) | ❌ No |
+
+The three that work are all *Codex*, and they all read the same
+`~/.codex/config.toml` — so one **Write Codex config** click sets up all of them.
+
+Ordinary ChatGPT chats cannot use this connector at all. ChatGPT supports only
+**remote** MCP servers (SSE / streamable HTTP), reached over the network. MultiMCP
+is a **local (stdio)** server that runs on your PC. That's a limitation of ChatGPT,
+not something this app can switch on.
+
+### Verifying it landed
+
+Codex's command-line tool is **not on your `PATH`**. It ships inside the desktop app,
+at a version-hashed path that changes whenever Codex updates:
+
+```
+%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\codex.exe
+```
+
+Run it from there (or from a terminal opened by the Codex IDE extension), and ask
+Codex what it thinks the server's settings are:
+
+```
+codex mcp get MultiMCP
+```
+
+You should see, among other things:
+
+```
+startup_timeout_sec: 120
+tool_timeout_sec: 300
+```
+
+**Do this check at least once.** Codex **silently discards config keys it doesn't
+recognise** — a misspelling isn't an error, it's simply ignored, and the server then
+runs with Codex's much shorter defaults. `codex mcp get` is the only way to prove the
+settings actually took effect.
+
+### The first tool call is slow — that's expected
+
+The **first** time Codex calls a MultiMCP tool, it can take up to about **two
+minutes** while `uvx` warms up and provisions the server. This is not a hang. That
+is exactly why the app sets `startup_timeout_sec = 120` (Codex's own default of 10
+seconds would kill the server mid-start) and `tool_timeout_sec = 300` (a large Gmail
+batch fetch can outrun the 60-second default). Subsequent calls are fast.
+
+### Codex never opens browser tabs either
+
+Codex's server gets the same two protections as Claude's: the setting that fixed the
+v0.4.0 sign-in tabs (it is named "single-user mode", but despite the name it does
+**not** limit you to one account — all of your accounts keep working), and a
+do-nothing stand-in for the browser, so it is **physically unable** to open a Google
+sign-in tab. Codex deliberately wipes the environment before launching an MCP server,
+so the app passes every variable it needs explicitly — the browser stand-in above all,
+since an *unset* browser setting would send Python straight to your real browser.
+
+Codex also gets its **own port, 9001** (Claude's server uses 9000; your sign-ins in
+this app use 8000). Like 9000, port 9001 is **not** registered with Google on purpose —
+a safety interlock, so a background sign-in can never complete. Don't register it.
+
+### How your `config.toml` is treated
+
+`config.toml` is a file you edit *and* the Codex app edits (Codex re-adds its own
+built-in `node_repl` server on every launch). It also holds your model choice,
+plugins, project trust levels and any other MCP servers. So the app never rewrites
+it. It replaces **only its own `MultiMCP` table**, preserving every other byte,
+comments included: it validates the result in memory *before* touching the disk,
+takes a timestamped backup, writes atomically, then re-reads and re-validates —
+restoring the backup if anything looks wrong. If it meets a file shape it cannot edit
+safely, it **refuses and tells you**, rather than guessing.
+
+> **Security note (same trade-off as Claude):** the OAuth client **secret** is written
+> into `config.toml`, because the local server needs it to refresh tokens. The file is
+> readable by your Windows user. This is documented in SPEC section 9.
+
+### Removing it
+
+Open `~/.codex/config.toml` in a text editor and delete the block the app added. It is
+easy to spot: the app writes a marker comment above it (`# >>> MultiMCP (managed by
+Google Workspace Manager) …`), and the block itself is the `[mcp_servers.MultiMCP]`
+table together with its `[mcp_servers.MultiMCP.env]` sub-table. Leave the rest of the
+file alone. Your accounts, your tokens and your Claude setup are not affected.
+
+> **One catch:** once you have clicked **Write Codex config**, the app treats that
+> entry as its own and **puts it back if it goes missing** — the same self-repair that
+> restores Claude's entry after a Claude Desktop reinstall. So it will reappear the
+> next time the tray app starts. Deleting it for good therefore means deleting it
+> *after* you have uninstalled the app (see [Uninstalling](#uninstalling)), or simply leaving
+> the entry in place — an MCP server Codex never calls costs you nothing.
+
+### Known limitation: Claude and Codex share one credentials folder
+
+Sharing the tokens is what makes "no second sign-in" possible, but it has a cost.
+`workspace-mcp` writes its token files **non-atomically** (no lock: it truncates, then
+writes). If Claude and Codex happen to refresh the **same account** at the **same
+instant**, that account's token file can be corrupted, and the account will need
+signing in again.
+
+The window is narrow — but it is real, and running both clients is exactly what makes
+it reachable. See [Troubleshooting](#troubleshooting) for what it looks like and the
+one-click fix.
 
 ---
 
@@ -313,7 +456,9 @@ choose:
 - **Import & overwrite** — also replaces existing token files with the ones from the
   backup (use if the backup is newer/authoritative).
 
-Then click **Write config** and restart Claude Desktop. That's it — no re-auth needed, as
+Then click **Write config** and restart Claude Desktop — plus **Write Codex config** if you
+use [Codex](#codex) on this machine, unless that row already reads **✓ Done**. That's it — no
+re-auth needed, as
 long as the sign-ins in the file are still valid. (If your OAuth app is still in
 **Testing**, those sign-ins expire after ~7 days, so an older export may need a re-auth or
 two; once it's [published to production](#long-lived), they keep working.)
@@ -361,9 +506,9 @@ two; once it's [published to production](#long-lived), they keep working.)
   tokens are redacted).
 - **Electron hardening:** context isolation on, node integration off, sandbox on;
   OAuth always opens in the system browser, never in an app window — and only when *you*
-  start a sign-in from the app. Claude's background server is deliberately given no way to
-  open a browser at all (a small do-nothing stand-in under
-  `%LOCALAPPDATA%\MultiMCP\`), which is why it can no longer surprise you with sign-in tabs.
+  start a sign-in from the app. The background servers — Claude's and Codex's alike — are
+  deliberately given no way to open a browser at all (a small do-nothing stand-in under
+  `%LOCALAPPDATA%\MultiMCP\`), which is why they can no longer surprise you with sign-in tabs.
 
 ---
 
@@ -446,6 +591,30 @@ config at `%APPDATA%\Claude`, so nothing to reconfigure — just **Write config*
 fully **quit + reopen** Claude. **Step-by-step:** [docs/SWITCH_CLAUDE_BUILD.md](docs/SWITCH_CLAUDE_BUILD.md).
 Ref: [MCP debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
+**Codex says the server failed to start** — this is the same cold-start problem: the
+first time a new `workspace-mcp` version runs, `uvx` has to install it (~90 packages),
+and until that finishes the server has nothing to answer with. The app already sets
+`startup_timeout_sec = 120` for Codex precisely for this, so first confirm the setting
+really landed — run `codex mcp get MultiMCP` and check it says `startup_timeout_sec: 120`
+(Codex silently ignores keys it doesn't understand, so this is the only reliable proof).
+If it's there, the fix is simply to let the install finish: leave the tray app running so
+it can **pre-warm** the engine in the background (it does this on launch and every 6
+hours), then **try again**. The failed attempt itself completes the install, so the next
+attempt is usually fine. Remember, too, that a healthy first tool call can still take up
+to ~2 minutes — that's the warm-up, not a failure.
+
+**I use Claude and Codex at the same time** — that's supported, and both share the same
+sign-ins. There is one rough edge to know about. The two clients share **one credentials
+folder**, and `workspace-mcp` writes token files without locking them. If both clients
+refresh the **same account** at the **same moment**, they can collide and leave that
+account's token file damaged.
+
+What it looks like: **one** account (not all of them) suddenly goes **re-auth needed**,
+even though you did nothing and nothing expired — while your other accounts carry on
+working normally. The fix is exactly what it sounds like: open the dashboard and click
+**Re-auth** on that one account. Nothing else needs repairing, and no other account is
+affected.
+
 **The "Connect your Google OAuth client" screen appears even though you're set up** —
 **fixed in v0.3.9.** The real cause turned out to be worse than the timing race that
 v0.3.8 had guessed at: restarting the PC could leave `settings.json` truncated, and the
@@ -468,11 +637,11 @@ on any PC where it wrote one before.
 **Port 8000 in use** — another process is using the OAuth callback port. Close it
 and retry the sign-in. (Sign-ins you start **in the app** use port **8000** — that is
 the only redirect URI registered on the OAuth client. Claude's background server is
-pinned to **9000**, so the two never clash. That server does still refresh tokens by
-itself — that's normal and needs no browser — but it deliberately has **no** registered
-redirect URI on 9000 and no way to open a browser, so it can never complete a Google
-consent screen on its own. Signing in is always something you do, visibly, from the
-app.)
+pinned to **9000** and Codex's to **9001**, so they never clash with it or with each
+other. Those servers do still refresh tokens by themselves — that's normal and needs no
+browser — but they deliberately have **no** registered redirect URI on 9000 or 9001 and
+no way to open a browser, so they can never complete a Google consent screen on their
+own. Signing in is always something you do, visibly, from the app.)
 
 **Reveal log** opens `%APPDATA%\google-workspace-manager\logs\`. Attach `app.log`
 when reporting an issue (it's secret-redacted).
@@ -489,6 +658,9 @@ Uninstall from Windows **Settings → Apps**. To fully remove all data, also del
   Windows Credential Manager
 - the `MultiMCP` block from `%APPDATA%\Claude\claude_desktop_config.json` (if the app
   was last written by a version before v0.4.0, that block is called `google_workspace`)
+- the Codex entry, if you added one — the `[mcp_servers.MultiMCP]` table and its
+  `[mcp_servers.MultiMCP.env]` sub-table in `~/.codex/config.toml`, along with the
+  `# >>> MultiMCP …` marker comment above them (leave the rest of the file as it is)
 
 ---
 
