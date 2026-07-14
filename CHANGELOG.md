@@ -4,6 +4,34 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.5.1 — 2026-07-15
+*Keeps itself correct while you aren't looking.*
+
+### Fixed
+- **The connector entry can no longer be undone by Claude Desktop.** Claude writes
+  `claude_desktop_config.json` too — it persists the connector list it loaded at *its* startup back
+  to the file. So a Claude that is still running an old config would put the old `google_workspace`
+  entry back, and your **next** Claude launch would load it: the OAuth-tab bug appearing to rise
+  from the dead. (Seen live: a key we had already renamed reappeared while Claude was open.) The app
+  now **watches both client config files and repairs them within a second** of any external change,
+  so the order in which you restart things no longer matters.
+- **A corrupted token file now repairs itself instead of demanding a re-auth.** `workspace-mcp`
+  writes token files by truncating and rewriting them, with no lock — which was harmless with one
+  client and is not, now that Claude *and* Codex can each run their own copy of the server against
+  the same credentials folder. We cannot fix their writer, so the app keeps a shadow copy of every
+  healthy token file and restores it automatically if one is found damaged. Nothing of value is
+  lost: the access token is regenerated on demand from the refresh token, which is the part that
+  actually matters.
+- Claude's config is now written **atomically** (temp file, flushed, renamed) and re-read to verify
+  what actually landed, rolling back to the backup if not — the same treatment `settings.json` got
+  in v0.3.9 and the Codex config got in v0.5.0. A locked or unreadable config is also no longer
+  mistaken for an empty one, which would have silently dropped your other MCP servers.
+
+### Changed
+- The header no longer claims this app is only for Claude Desktop — it serves Codex too.
+- The Codex row is no longer painted red when you simply haven't set it up yet. Not doing an
+  optional thing is not an error.
+
 ## v0.5.0 — 2026-07-15
 *The same accounts, now in OpenAI Codex too.*
 

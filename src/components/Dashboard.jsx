@@ -322,14 +322,17 @@ function CodexStrip({ codex, busy, err, onWrite }) {
     );
   }
 
-  const state = codex.inSync ? "ok" : codex.present ? "stale" : "missing";
+  // "Not written yet" is a choice the user hasn't made, not a fault - so it gets the
+  // neutral style, unlike Claude's row where a missing config means the app isn't
+  // doing its job. Only a genuinely stale entry is worth colouring.
+  const state = codex.inSync ? "ok" : codex.present ? "stale" : "absent";
   const label = codex.error
     ? `Codex config: ${codex.error}`
     : state === "ok"
       ? "Codex config in sync"
       : state === "stale"
         ? "Codex config out of date"
-        : "Codex config not written yet";
+        : "OpenAI Codex detected — add your accounts to it too";
 
   return (
     <>

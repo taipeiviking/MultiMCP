@@ -31,6 +31,7 @@ const serverManager = require("./services/serverManager");
 const claudeConfig = require("./services/claudeConfig");
 const codexConfig = require("./services/codexConfig");
 const noBrowser = require("./services/noBrowser");
+const tokenGuard = require("./services/tokenGuard");
 const backup = require("./services/backup");
 const log = require("./services/logger");
 
@@ -85,6 +86,7 @@ function bootstrap() {
       .healServerEntryIfStale()
       .then((r) => r.healed && log.info("app", "codex config auto-healed", r))
       .catch((e) => log.error("app", "codex heal error", { message: String(e) }));
+    watchClientConfigs();
     createTray();
     const startHidden =
       process.argv.includes("--hidden") ||
@@ -105,6 +107,13 @@ function bootstrap() {
   app.on("before-quit", () => {
     isQuitting = true;
     if (expiryTimer) clearInterval(expiryTimer);
+    for (const w of watchers) {
+      try {
+        w.close();
+      } catch {
+        /* already gone */
+      }
+    }
     serverManager.stopAll().catch(() => {});
   });
 
@@ -502,6 +511,100 @@ function applyAutostartPreference() {
 
 // --- Expiry checks ----------------------------------------------------------
 
+// Keep the client configs correct even while we are just sitting in the tray.
+//
+// Healing only at OUR startup is not enough, because the clients write these files
+// too. Claude Desktop in particular persists the connector list it loaded at ITS
+// startup back to claude_desktop_config.json -- so a Claude that is still running an
+// old config will happily put the old entry back, and the user's NEXT Claude launch
+// then loads it. Observed live: a "google_workspace" key we had already renamed
+// reappeared while Claude was open. The result would look exactly like the OAuth-tab
+// bug coming back from the dead.
+//
+// So watch both files and re-heal on change. Healing is idempotent -- when the entry
+// is already right it writes nothing -- so our own writes cannot start a loop.
+const watchers = [];
+
+// The credentials dir is written by the SERVERS (Claude's and Codex's), not by us, so
+// a clobbered token can appear at any moment - not just at the times we happen to
+// look. Sweeping only at launch and every six hours would leave an account looking
+// broken for hours. Watch the directory and repair within seconds instead.
+//
+// Our own restore write re-triggers this, which is harmless: the second sweep finds a
+// healthy file and writes nothing.
+function watchCredentialsDir() {
+  const dir = credentials.credentialsDir();
+  if (!fs.existsSync(dir)) return;
+  let timer = null;
+  let w;
+  try {
+    w = fs.watch(dir, () => {
+      clearTimeout(timer);
+      // Debounce well past a single refresh write: we want to look AFTER the writer
+      // has finished, or we would "repair" a file that is merely mid-write.
+      timer = setTimeout(() => {
+        try {
+          const r = tokenGuard.sweep();
+          if (r.repaired.length) {
+            log.warn("app", "repaired token file(s) after an external write", r);
+          }
+        } catch (e) {
+          log.error("app", "token guard sweep failed", { message: String(e) });
+        }
+      }, 2500);
+    });
+  } catch (e) {
+    log.warn("app", "could not watch credentials dir", { dir, message: String(e) });
+    return;
+  }
+  w.on("error", (e) => log.warn("app", "credentials watcher error", { message: String(e) }));
+  watchers.push(w);
+  log.info("app", "watching credentials dir for clobbered token files", { dir });
+}
+
+function watchClientConfigs() {
+  watchCredentialsDir();
+  const targets = [
+    { name: "claude", file: claudeConfig.configPath(), heal: () => claudeConfig.healServerEntryIfStale() },
+    { name: "codex", file: codexConfig.configPath(), heal: () => codexConfig.healServerEntryIfStale() },
+  ];
+
+  for (const t of targets) {
+    const dir = path.dirname(t.file);
+    const base = path.basename(t.file);
+    if (!fs.existsSync(dir)) continue; // client not installed; nothing to watch
+
+    let timer = null;
+    let w;
+    try {
+      // Watch the DIRECTORY, not the file: an atomic writer (ours included) replaces
+      // the file by rename, which breaks a watch bound to the old inode/handle.
+      w = fs.watch(dir, (_event, filename) => {
+        if (filename && filename !== base) return;
+        clearTimeout(timer);
+        // Debounce: a single logical save can fire several change events, and the
+        // writer may be mid-write when the first one arrives.
+        timer = setTimeout(async () => {
+          try {
+            const r = await t.heal();
+            if (r && r.healed) {
+              log.info("app", `${t.name} config changed externally - re-healed`, r);
+            }
+          } catch (e) {
+            log.error("app", `${t.name} watch heal failed`, { message: String(e) });
+          }
+        }, 1500);
+      });
+    } catch (e) {
+      log.warn("app", `could not watch ${t.name} config`, { dir, message: String(e) });
+      continue;
+    }
+    w.on("error", (e) => log.warn("app", `${t.name} config watcher error`, { message: String(e) }));
+    watchers.push(w);
+    log.info("app", `watching ${t.name} config for external changes`, { file: t.file });
+  }
+}
+
 function scheduleExpiryChecks() {
   setTimeout(() => checkExpiries(false), 8000); // shortly after launch
   expiryTimer = setInterval(() => checkExpiries(false), EXPIRY_CHECK_INTERVAL_MS);
@@ -512,6 +615,14 @@ async function checkExpiries(manual) {
   // workspace-mcp version bump installs in the background here — not during Claude's
   // attach, which would time out ("Could not attach to MCP server"). Non-blocking.
   serverManager.prewarm();
+  // Back up healthy token files, and repair any that a concurrent refresh clobbered,
+  // BEFORE verifying them - otherwise a repairable file would be reported to the user
+  // as an account that needs re-authorizing.
+  try {
+    tokenGuard.sweep();
+  } catch (e) {
+    log.error("expiry", "token guard sweep failed", { message: String(e) });
+  }
   // Verify refresh tokens against Google so status reflects reality, not a clock.
   try {
     await accounts.verifyAll();

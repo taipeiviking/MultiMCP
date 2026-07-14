@@ -56,11 +56,12 @@ export default function App() {
       <header className="topbar">
         {version && <span className="version-badge">v{version}</span>}
         <p className="brand__desc">
-          Connect multiple Google Workspace accounts to Claude Desktop — sign in once,
-          and Claude gets Gmail, Drive &amp; Calendar access per account. This app runs
-          the diagnostics &amp; authentication backend (<code>workspace-mcp</code>)
-          through <code>uvx</code>; Claude Desktop launches the same backend each
-          session, so your accounts stay connected without re-signing in every time.
+          Connect multiple Google Workspace accounts to <strong>Claude Desktop</strong> and{" "}
+          <strong>OpenAI Codex</strong> — sign in once, and each gets Gmail, Drive &amp;
+          Calendar access per account, from the same sign-ins. This app runs the
+          diagnostics &amp; authentication backend (<code>workspace-mcp</code>) through{" "}
+          <code>uvx</code>; each AI client launches its own copy of that backend, so your
+          accounts stay connected without re-signing in every time.
         </p>
       </header>
 

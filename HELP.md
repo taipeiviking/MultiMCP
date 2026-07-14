@@ -179,6 +179,12 @@ Connectors / tools.
 > settings the connector depends on (and re-adds the whole entry if something else,
 > such as a Claude Desktop reinstall, replaced the config file and dropped it). That
 > is how fixes like the one in v0.4.0 reach a PC that was already set up.
+>
+> **Since v0.5.1 it also keeps watching the file while it runs.** Claude Desktop
+> *writes* `claude_desktop_config.json` as well as reading it, so it can put an old
+> entry back behind your back; the app now notices any outside change and repairs it
+> within a second or two. See [Troubleshooting](#troubleshooting) if you have seen the
+> connector's name change back on its own.
 
 > **Security note:** for a confidential ("Web") OAuth client, the client **secret**
 > is written into `claude_desktop_config.json` so Claude's own server can refresh
@@ -308,17 +314,26 @@ file alone. Your accounts, your tokens and your Claude setup are not affected.
 > *after* you have uninstalled the app (see [Uninstalling](#uninstalling)), or simply leaving
 > the entry in place — an MCP server Codex never calls costs you nothing.
 
-### Known limitation: Claude and Codex share one credentials folder
+### Claude and Codex share one credentials folder — and the app now guards it
 
 Sharing the tokens is what makes "no second sign-in" possible, but it has a cost.
 `workspace-mcp` writes its token files **non-atomically** (no lock: it truncates, then
 writes). If Claude and Codex happen to refresh the **same account** at the **same
-instant**, that account's token file can be corrupted, and the account will need
-signing in again.
+instant**, that account's token file can be left damaged — and a damaged token file
+looks exactly like an account that needs signing in again.
 
-The window is narrow — but it is real, and running both clients is exactly what makes
-it reachable. See [Troubleshooting](#troubleshooting) for what it looks like and the
-one-click fix.
+The window is narrow, but it is real, and running both clients is exactly what makes it
+reachable. Since **v0.5.1** the app therefore keeps a private **spare copy** of every
+token file it has seen in good health, watches the credentials folder, and **puts the
+spare back automatically** — usually within seconds — if it finds one damaged. Nothing
+of value is lost in the swap: the short-lived part of a token is simply re-issued by
+Google on the next request, and the durable part (the bit that stands for your sign-in)
+does not change.
+
+To be honest about what this is: the app **repairs** the damage, it does not **prevent**
+it. The faulty write is inside `workspace-mcp` itself, which is not our code to fix. What
+it does mean is that the collision should no longer cost you a re-auth. See
+[Troubleshooting](#troubleshooting).
 
 ---
 
@@ -501,6 +516,11 @@ two; once it's [published to production](#long-lived), they keep working.)
   (`settings.json.bak`). Since v0.3.9 this file is written **atomically**, so a crash or an
   unclean shutdown can't leave it half-written; if it is ever found damaged, the app
   restores it from the backup automatically.
+- **Spare copies of the token files** (v0.5.1) →
+  `%APPDATA%\google-workspace-manager\token-backups\`. The app keeps a copy of each token
+  file while it is healthy, so it can restore one that gets damaged (see
+  [Troubleshooting](#troubleshooting)). These copies are as sensitive as the originals —
+  they are covered by the uninstall clean-up below.
 - **Account list** → `%APPDATA%\google-workspace-manager\accounts.json`.
 - **Debug log** → `%APPDATA%\google-workspace-manager\logs\app.log` (secrets and
   tokens are redacted).
@@ -550,6 +570,23 @@ is, raises a **Windows notification**. Open the dashboard, find the account show
 **re-auth needed**, and click **Re-auth** — that sign-in opens a real browser window,
 from the app, which is exactly where it belongs (it's the only place you can see which
 account you're approving).
+
+**The connector went back to being called `google_workspace` — and the sign-in tabs came
+back with it** — this is **fixed in v0.5.1**, and it is worth knowing why it happened,
+because it really did look as though the v0.4.0 fix had come undone.
+
+Claude Desktop does not only *read* `claude_desktop_config.json` — it also **writes** it.
+When it saves that file, it writes back the connector list it loaded when *Claude itself*
+started. So if this app renamed the entry to **MultiMCP** while Claude was still running
+with the old list in its memory, Claude could quietly put the old `google_workspace` entry
+back — and your **next** Claude launch would then load that old entry, browser tabs and
+all. (This was watched happening on a real machine: a name that had already been changed
+reappeared, on its own, while Claude was open.)
+
+You no longer have to care about any of this. The app now **watches both client config
+files** — Claude's and Codex's — and repairs them within a second or two of any change made
+from outside. Whatever puts a stale entry back, the app takes it out again, so **the order
+in which you restart things no longer matters**. There is nothing for you to do.
 
 **`Engine missing`** — the bundled engine should make this rare. Fully quit the app
 (tray → Quit) and relaunch so it re-checks. If you run from source in dev, run
@@ -603,17 +640,33 @@ hours), then **try again**. The failed attempt itself completes the install, so 
 attempt is usually fine. Remember, too, that a healthy first tool call can still take up
 to ~2 minutes — that's the warm-up, not a failure.
 
-**I use Claude and Codex at the same time** — that's supported, and both share the same
-sign-ins. There is one rough edge to know about. The two clients share **one credentials
-folder**, and `workspace-mcp` writes token files without locking them. If both clients
-refresh the **same account** at the **same moment**, they can collide and leave that
-account's token file damaged.
+**I use Claude and Codex at the same time — and one account suddenly says "re-auth
+needed"** — using both together is supported, and both share the same sign-ins. There is
+one rough edge, and since **v0.5.1 the app fixes it for you**.
 
-What it looks like: **one** account (not all of them) suddenly goes **re-auth needed**,
-even though you did nothing and nothing expired — while your other accounts carry on
-working normally. The fix is exactly what it sounds like: open the dashboard and click
-**Re-auth** on that one account. Nothing else needs repairing, and no other account is
-affected.
+The rough edge: the two clients share **one credentials folder**, and `workspace-mcp`
+writes its token files without locking them. If both clients refresh the **same account**
+at the **same moment**, they can collide and leave that one account's token file damaged —
+which looks exactly like a sign-in that has died.
+
+What you would see: **one** account (never all of them) suddenly goes **re-auth needed**,
+although you did nothing and nothing expired, while your other accounts carry on working
+normally.
+
+What now happens instead: the app keeps a **spare copy** of every token file it has seen in
+good health, and it watches the credentials folder. When a token file is damaged, the spare
+is put back **automatically**, usually within seconds — no notification, no re-auth, nothing
+to click. Nothing is lost by the swap: the short-lived part of the token is re-issued by
+Google on the next request, and the part that stands for your sign-in does not change. So
+this should now be rare enough that you never notice it.
+
+Being straight with you: this is a **repair, not a cure**. The faulty write lives inside
+`workspace-mcp`, which is not this app's code to fix, so a token file can still be damaged —
+the app just puts it right again. And if an account is damaged **before** the app has ever
+seen it healthy, there is no spare to restore from; that account genuinely does need
+signing in again. So if an account still shows **re-auth needed** after a minute or two,
+the answer is the old one: open the dashboard and click **Re-auth** on that account. No
+other account is affected, and nothing else needs repairing.
 
 **The "Connect your Google OAuth client" screen appears even though you're set up** —
 **fixed in v0.3.9.** The real cause turned out to be worse than the timing race that

@@ -6,7 +6,7 @@
 > notifications and autostart; packages to a Windows NSIS installer. §8 documents the
 > UI as built. See HELP.md for the end-user guide.
 >
-> **Current: v0.5.0.** Recent hardening (see CHANGELOG.md for the full list):
+> **Current: v0.5.1.** Recent hardening (see CHANGELOG.md for the full list):
 > - **v0.3.5** — re-auth status is driven by a **live refresh-token check** against Google
 >   (not a fixed 7-day guess), plus a `productionMode` flag (manual checkbox + auto-learn)
 >   that drops the countdown; **pre-warms the uvx/workspace-mcp cache** (launch + every 6h)
@@ -38,6 +38,20 @@
 >   no account is re-authorized. Codex gets its **own** port (**9001**), because every MCP
 >   client spawns its own copy of the server. `config.toml` is a file the user and the Codex
 >   app both write, so it is edited **surgically** and never rewritten (§6f).
+> - **v0.5.1** — the two things we write that other processes also write — the **client
+>   configs** and the **token store** — are now repaired continuously instead of only at
+>   launch. Claude Desktop *writes* `claude_desktop_config.json` too (it persists the
+>   connector list it loaded at **its own** startup), so a still-running Claude puts a stale
+>   `google_workspace` entry back and the user's next Claude launch loads it — the v0.4.0 bug
+>   apparently resurrected, observed live on a dev machine. Both client config files are now
+>   **watched** and re-healed within ~1.5 s of any external write (§6h). Separately, a **token
+>   guard** shadow-copies every healthy credential file and restores one that workspace-mcp's
+>   non-atomic writer left truncated, so the v0.5.0 two-client token-write race is now
+>   **repaired** — not **prevented** (§4 item 10, §9). Finally, `claudeConfig` writes
+>   **atomically** with post-write verification and rollback, and no longer treats an
+>   *unreadable* config as an empty one (§6a) — the last of the three config writers to get
+>   the v0.3.9 treatment. Cosmetic: the header no longer claims the app is Claude-only, and an
+>   unwritten Codex config is no longer rendered as an error (§8).
 >
 > Port design (v0.3.4; corrected in v0.4.0; extended in v0.5.0): the interactive **sign-in**
 > uses port **8000** (the only registered redirect URI); **Claude's** background server is
@@ -135,7 +149,9 @@ client automatically. There is one token store, one OAuth client, many accounts.
 
 The corollary is that each client gets its **own server process** — which is why each needs
 its own port (§6g), and why two clients refreshing the same account at the same instant is a
-real (if narrow) hazard (§9, token-write race).
+real (if narrow) hazard (§9, token-write race). Since v0.5.1 that hazard is **repaired** by
+the token guard (§4 item 10) rather than merely documented; it is still not prevented, because
+the faulty writer is upstream.
 
 ## 4. Responsibilities (what the app actually does)
 
@@ -160,11 +176,13 @@ real (if narrow) hazard (§9, token-write race).
    `claude_desktop_config.json` so the user never edits JSON by hand. Always merge
    (never clobber other servers) and back up before writing. The entry's key is the
    name Claude displays for the connector: **`MultiMCP`** (§6a). The app also
-   **repairs** the entry on every launch: it restores the entry if a Claude Desktop
-   reinstall replaced the file and dropped it (guarded by a `claudeConfigWritten`
-   marker, so we never add an entry on a machine we never set up), migrates a legacy
-   `google_workspace` entry to the new key, and rewrites the entry when the command
-   path or any load-bearing env key has drifted.
+   **repairs** the entry on every launch — and, since v0.5.1, whenever the file changes
+   underneath it (§6h): it restores the entry if a Claude Desktop reinstall replaced the
+   file and dropped it (guarded by a `claudeConfigWritten` marker, so we never add an
+   entry on a machine we never set up), migrates a legacy `google_workspace` entry to the
+   new key, and rewrites the entry when the command path or any load-bearing env key has
+   drifted. The write itself is **atomic, verified and rollback-protected** as of v0.5.1
+   (§6a, "Write contract").
 6. **Diagnostics & cache pre-warm** — "Test" button launches the server briefly and
    surfaces logs; prerequisite checks for `uv`/`uvx` and Python; and a background
    **pre-warm** of `uvx workspace-mcp` (on launch + every 6h) so the one-time install of
@@ -189,6 +207,18 @@ real (if narrow) hazard (§9, token-write race).
    Codex at the **same** credentials dir, so no account has to be signed in again; it gives
    Codex its **own** port (§6g); and it edits the file **surgically**, because `config.toml`
    belongs to the user and to the Codex app as much as to us (§6e, §6f).
+9. **Config watchers (v0.5.1)** — neither client config is ours alone, so healing them once
+   at launch is not enough. The app **watches both files for the whole session** and re-runs
+   the same idempotent heal a moment after any external write (§6h). Without this, the order
+   in which the user restarts the app and Claude decides whether a fix sticks.
+10. **Token guard (v0.5.1)** — `workspace-mcp` writes the per-account token files by
+    truncating and rewriting them, with **no lock and no atomic rename**
+    (`auth/credential_store.py`). Harmless with one client; not harmless now that Claude and
+    Codex each run their **own** server process against the **same** credentials dir (§3). We
+    cannot fix their writer, so the app keeps a **shadow copy** of every token file it has
+    seen healthy and **restores it** when it finds one damaged (§9, token guard). This is
+    **repair, not prevention**: a corrupt write is still possible, it just stops costing the
+    user a re-auth.
 
 ## 5. Prerequisites the app must check / guide
 
@@ -282,6 +312,29 @@ Notes:
   key that becomes load-bearing must be added to `CRITICAL_ENV`, or existing installs
   will not get it.
 - A leftover `google_workspace` entry counts as "not in sync" even when ours looks right.
+
+**Write contract (v0.5.1).** `claudeConfig.writeServerEntry()` is a read-modify-write over a
+file that holds **every** MCP server the user has, so it now follows the same contract as
+`settings.json` (§4 item 7) and `config.toml` (§6f) — it was the last writer that did not:
+
+1. **An unreadable file is not an empty file.** The write path reads through
+   `readRawForWrite()`, which returns `""` only for `ENOENT` and otherwise **throws**. The old
+   `try/catch → return {}` treated a locked, AV-held or permission-denied config as though it
+   contained nothing, and then wrote that back — silently deleting every other MCP server the
+   user had. That is the §4 item 7 failure mode exactly, on a second file. (A file
+   that *is* readable but does not parse is different: it is already broken for Claude and has
+   no server list left to preserve, so it is rewritten — loudly logged, with the original bytes
+   kept in the backup.)
+2. **Back up first** — a timestamped `claude_desktop_config.json.bak-<epoch>`.
+3. **Write atomically** — temp file → `fsync` → `rename` over the primary (atomic on NTFS). A
+   plain `writeFileSync` truncates in place, so a crash mid-write leaves a zero-length config:
+   exactly the v0.3.9 `settings.json` failure, on a different file.
+4. **Verify what landed, not what we meant.** `verifyOnDisk()` re-reads the file from disk and
+   checks that it parses, that our entry is byte-for-byte the entry we built, that no legacy key
+   survived, and that **every previously present server is still present**.
+5. **Roll back on any discrepancy** — restore the backup (or delete the file, if we created it),
+   and throw. Leaving the user's config worse than we found it is the one outcome we do not
+   accept.
 
 ### b) Transient sign-in flow the app drives (per account) — CONFIRMED
 > Verified against workspace-mcp 1.21.1 source. The earlier streamable-http guess
@@ -521,6 +574,50 @@ file (§9). **Never** tell users to register them. As with Claude, both `WORKSPA
 the bare `PORT` are pinned, because the bare `PORT` is read first and a machine-level
 `PORT=8000` would otherwise steal the registered sign-in port.
 
+### h) Config watchers — healing continuously, not just at launch (v0.5.1)
+
+**Why launch-time healing was not enough.** Claude Desktop does not only *read*
+`claude_desktop_config.json`; it **writes** it, persisting the connector list it loaded at
+**its own** startup. So a Claude that is still running an old config will write the old config
+back — and the user's **next** Claude launch loads it. Concretely: the app renames
+`google_workspace` → `MultiMCP` while Claude is open, Claude later saves and re-creates
+`google_workspace`, and the next Claude session spawns a second, stale server with the old env
+— the v0.4.0 OAuth-tab bug, apparently back from the dead. This is not hypothetical: it was
+observed live on a dev machine, a key we had already renamed reappearing while Claude was open.
+The consequence is unacceptable in a support sense — whether a fix holds would depend on the
+**order in which the user restarts things**, which no user should have to reason about.
+
+**What is watched** (`watchClientConfigs()` / `watchCredentialsDir()` in `main.js`, started at
+`ready` and closed on `before-quit`):
+
+| Watched | Debounce | On fire |
+| ------- | -------- | ------- |
+| `%APPDATA%\Claude\claude_desktop_config.json` | 1500 ms | `claudeConfig.healServerEntryIfStale()` |
+| `~/.codex/config.toml` (or `$CODEX_HOME`) | 1500 ms | `codexConfig.healServerEntryIfStale()` |
+| `%USERPROFILE%\.google_workspace_mcp\credentials\` | 2500 ms | `tokenGuard.sweep()` (§9) |
+
+Four details are load-bearing:
+
+- **Watch the directory, not the file.** An atomic writer — ours included (§6a) — replaces the
+  file by `rename`, which invalidates a watch bound to the old file handle. A directory watch
+  survives it; the `filename` argument is then matched against the basename to ignore siblings
+  (`.bak-*`, `.tmp`).
+- **Debounce.** One logical save fires several change events, and the first of them can arrive
+  while the writer is still mid-write. We want to look *after* the writer has finished — hence a
+  delay comfortably longer than a single write, and a longer one for the credentials dir, where
+  "reading too early" would mean *"repairing"* a file that is merely half-written.
+- **Healing is idempotent, so our own writes cannot start a loop.** Every heal path is a
+  compare-then-write: `healServerEntryIfStale()` writes nothing when the entry already matches
+  what it would build, and `tokenGuard.sweep()` writes nothing when the token file is healthy and
+  its shadow copy is identical. Our write does re-trigger the watcher — that second pass simply
+  finds everything correct and does nothing.
+- **A missing client is not watched.** If the config's parent directory does not exist, the
+  client is not installed and there is nothing to watch. Watcher errors are logged and swallowed:
+  a failed watch degrades to the pre-v0.5.1 behaviour (heal at launch only), never to a crash.
+
+The Codex watcher inherits the `codexConfigWritten` gate of §6e: the heal it calls is a no-op on
+a machine where the user never clicked **Write Codex config**.
+
 ## 7. Google Cloud one-time items still required
 
 1. Enable the **standard Google Calendar API** (`calendar-json.googleapis.com`).
@@ -541,7 +638,9 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs.
 
 - **Header**: full-width intro paragraph describing what the app does (the product
   name lives in the OS title bar: "MultiMCP — Google Workspace Manager"). No native
-  menu bar — a single **? Help** button (on the Accounts row) opens `HELP.md`.
+  menu bar — a single **? Help** button (on the Accounts row) opens `HELP.md`. As of
+  v0.5.1 that paragraph names **both** clients: it claimed the app was for Claude Desktop
+  alone, which stopped being true when Codex shipped in v0.5.0.
 - **Dashboard**: add-account row; a **Check now** button (verifies every account
   against Google on demand); account cards (email, status dot, live
   "connected ✓ · verified Xm ago" / Testing-mode countdown / "re-auth needed",
@@ -551,7 +650,10 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs.
   `[mcp_servers.MultiMCP]` table into `~/.codex/config.toml` (§6e), and, when Codex is
   **not** detected on the machine, a one-line explanation instead of a dead button
   (most users have never heard of Codex; a greyed-out control with no reason attached
-  just looks broken); a mode-aware re-auth note; an **"OAuth app
+  just looks broken). As of v0.5.1 a Codex config the user has simply **not written yet**
+  is styled **neutrally, not as an error** — Claude's row is required for the app to do
+  its job, Codex's is optional, and declining an optional integration is not a fault
+  state. Then: a mode-aware re-auth note; an **"OAuth app
   published to production"** checkbox (drops the 7-day countdown; auto-ticks once a
   token outlives 7 days); a **Start with Windows** checkbox (default on); a Debug-log
   row with a **View log** button (in-app modal viewer).
@@ -574,7 +676,13 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs.
 - **Expiry watcher**: checks ~8s after launch and every 6h; native notification when
   an account is expired or within 48h of its re-auth deadline; clicking opens the
   dashboard. The same pass reports any sign-in demand the no-browser shim swallowed,
-  after verifying the account really is dead (§6d).
+  after verifying the account really is dead (§6d), and — since v0.5.1 — runs the
+  `tokenGuard` sweep **first**, so a repairable token file is fixed rather than reported
+  as an account needing re-auth (§9).
+- **File watchers (v0.5.1)**: for the whole session the app watches both client configs and
+  the credentials dir, re-healing each within a second or two of any external write (§6h).
+  They are closed on `before-quit`. This is silent — a repair that needed announcing would
+  be a repair the app had failed to make.
 - **First-run screen tells the truth** (v0.3.9): if sign-ins and a stored Client Secret
   exist but the Client ID has gone, it says the settings appear to have been lost and
   points at Import, instead of greeting an already-configured user as brand new.
@@ -611,13 +719,46 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs.
   The **same trade-off applies verbatim to Codex**: the secret is written into
   `config.toml` (§6e) for the same reason, because Codex's stdio server is the same Python
   server with the same refresh requirement.
-- **Known limitation — the token-write race between two clients (v0.5.0).** Claude and Codex
-  share **one** credentials directory, and `workspace-mcp` writes token files
-  **non-atomically**: no lock, truncate-then-write. If both clients refresh the **same**
-  account at the **same instant**, that account's token file can be left corrupt and the
-  account will have to be signed in again from the tray app. The window is narrow, but it is
-  real — and running both clients is precisely what makes it reachable. It is stated here
-  rather than papered over; a fix belongs upstream, in how the server writes those files.
+- **The token-write race between two clients (v0.5.0), and the token guard that repairs it
+  (v0.5.1).** Claude and Codex share **one** credentials directory, and `workspace-mcp` writes
+  token files **non-atomically**: no lock, truncate-then-write (`auth/credential_store.py`). If
+  both clients refresh the **same** account at the **same instant**, that account's token file
+  can be left truncated or half-written — and a damaged token file is indistinguishable, to the
+  user, from a sign-in that has died. The window is narrow, but it is real, and running both
+  clients is precisely what makes it reachable.
+
+  **This cannot be prevented from here.** The faulty writer is upstream Python we do not
+  control, and a lock we take in Electron means nothing to a process that takes none. So
+  `tokenGuard` (`electron/services/tokenGuard.js`) **repairs** instead:
+
+  - **Shadow copies.** Every token file seen in a *good* state is copied to
+    `<userData>\token-backups\<same name>`. "Good" means it parses **and** still carries a
+    `refresh_token` — a file that parses but has lost the refresh token is worthless as a
+    backup and is not stored as one. The copy is written atomically (temp → `fsync` → rename,
+    mode `0600`) and only when it differs from what is already there, so a healthy five-account
+    setup rewrites nothing on a routine sweep. `oauth_states.json` is internal and is skipped.
+  - **When the sweep runs.** At launch (inside the expiry check, ~8 s in), every **6 h**, on
+    **Check now**, and — since the servers can clobber a file at any moment, not only when we
+    happen to look — on **every change to the credentials directory**, debounced 2500 ms
+    (§6h). The sweep runs **before** the refresh-token verification of §4 item 3, or a
+    repairable file would be reported to the user as an account needing re-authorization.
+  - **The restore rule.** A damaged live file whose shadow copy is good: the damaged bytes are
+    first preserved as `<shadow>\<name>.corrupt-<epoch>` (forensics — this is the only evidence
+    of an upstream race we will ever get), then the shadow copy is written back over the live
+    file atomically. **Nothing of value is lost**: the `token` field is a short-lived access
+    token that Google re-issues on demand from the `refresh_token`, and the `refresh_token` —
+    the durable part, the part that *is* the sign-in — does not change when it is spent.
+  - **No shadow copy → leave it alone.** A damaged file we have never seen healthy is **not**
+    touched: there is nothing to restore from, the account genuinely needs re-authorizing, and
+    §4 item 3's live check will say so. Inventing a repair here would replace an honest
+    "re-auth needed" with a silent, broken file. It is logged as `unrecoverable`.
+
+  **Honest statement of scope: this is repair, not prevention.** A corrupt write is still
+  possible; it has merely stopped being the user's problem. The real fix belongs upstream, in
+  how `workspace-mcp` writes those files.
+- **The shadow copies are secrets too.** `<userData>\token-backups\` contains refresh tokens and
+  must be treated exactly like the credentials dir: never logged, and removed on uninstall
+  (it lives under `%APPDATA%\google-workspace-manager\`, which HELP.md already lists).
 - Credential file format (confirmed, workspace-mcp 1.21.1): one JSON file per
   account named `<urlencoded-email>.json` (plain `<email>.json` for ordinary
   emails) in `GOOGLE_MCP_CREDENTIALS_DIR`, fields `token, refresh_token,
