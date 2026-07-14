@@ -8,9 +8,17 @@ no Microsoft Store involved.
 **Good news before you start:**
 - Your `google_workspace` setup **carries over** — both config files already match, so you
   do **not** need to re-auth, re-import, or reconfigure anything.
-- Your data is **safe**: your real config + tokens live at `%APPDATA%\Claude\` and in
-  Windows Credential Manager — **outside** the Store sandbox — so uninstalling the Store
-  app does not touch them.
+- Your data is **safe**. Even more important: your **accounts and sign-ins do NOT live in
+  Claude's folder at all** — they're in the Google Workspace Manager app's own data:
+    - `C:\Users\<you>\AppData\Roaming\google-workspace-manager\` (settings + account list)
+    - `C:\Users\<you>\.google_workspace_mcp\credentials\` (the per-account sign-in tokens)
+    - Windows **Credential Manager** (the OAuth secret)
+    - plus your exported `…backup-YYYY-MM-DD.json`
+  Claude's own config lives at `C:\Users\<you>\AppData\Roaming\Claude\` (this is what
+  `%APPDATA%\Claude` expands to — note `%APPDATA%` only expands in PowerShell / File
+  Explorer's address bar, not in a plain search box). The installer build reads that same
+  folder, so your `google_workspace` entry carries over. Worst case, click **Write config**
+  in the app and it rebuilds it.
 - Do the steps **in this order** (uninstall Store first, then install), so two copies of
   Claude don’t fight over the MCP server (port 9000) during the switch.
 
@@ -41,7 +49,9 @@ Get-AppxPackage -Name '*Claude*' | Remove-AppxPackage
 ```
 
 ✔️ This removes only the sandboxed copy under
-`…\Packages\Claude_pzs8sxrjxfjjc\…`. Your `%APPDATA%\Claude\` config stays put.
+`C:\Users\<you>\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\…`. Your regular Claude config
+folder `C:\Users\<you>\AppData\Roaming\Claude\` — and all your Google Workspace Manager
+data — stays put.
 
 ---
 
