@@ -17,16 +17,115 @@ function settingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
 }
 
-function readSettings() {
+function backupPath() {
+  return `${settingsPath()}.bak`;
+}
+
+function parseSettings(text) {
   try {
-    return JSON.parse(fs.readFileSync(settingsPath(), "utf8"));
+    const v = JSON.parse(text);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
   } catch {
-    return {};
+    return null;
   }
 }
 
+// Load settings, distinguishing states that MUST NOT be conflated:
+//   "missing"     - no file: a genuinely fresh install, {} is the right answer.
+//   "ok"          - parsed fine.
+//   "recovered"   - the file was empty/unparseable but settings.json.bak was good.
+//   "quarantined" - corrupt with no usable backup. The data is genuinely gone, so
+//                   we set the ruined file aside and start clean - otherwise the
+//                   app could never save anything again.
+//   "unusable"    - the file could not be READ (locked / AV / permissions). We do
+//                   not know what is in it, so data is null and callers MUST NOT
+//                   write over it.
+//
+// The old code collapsed all of these into `return {}`. Combined with a
+// read-modify-write patchSettings(), that turned a single transient read failure
+// (or a truncated file after an unclean shutdown) into permanent data loss: the
+// next window-move wrote `{windowBounds}` over a config that still had the
+// clientId in it. That is exactly how a PC restart wiped this user's setup twice.
+function loadSettings() {
+  const p = settingsPath();
+  let text;
+  try {
+    text = fs.readFileSync(p, "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return { data: {}, state: "missing" };
+    log.error("credentials", "settings unreadable (will not overwrite)", {
+      code: e.code,
+      message: String(e),
+    });
+    return { data: null, state: "unusable" };
+  }
+
+  const parsed = parseSettings(text);
+  if (parsed) return { data: parsed, state: "ok" };
+
+  // The file exists but is empty or malformed - a truncated write. Recover.
+  let backup = null;
+  try {
+    backup = parseSettings(fs.readFileSync(backupPath(), "utf8"));
+  } catch {
+    /* no usable backup */
+  }
+  if (backup) {
+    log.warn("credentials", "settings.json corrupt - recovered from backup", {
+      corruptBytes: text.length,
+      keys: Object.keys(backup),
+    });
+    writeSettings(backup); // restore the primary immediately
+    return { data: backup, state: "recovered" };
+  }
+
+  // Corrupt with nothing to recover from. Keep the ruined bytes for forensics, but
+  // get it out of the way so the app can be reconfigured (the UI will offer Import).
+  const quarantine = `${p}.corrupt-${Date.now()}`;
+  try {
+    fs.renameSync(p, quarantine);
+    log.error("credentials", "settings.json corrupt and no usable backup - quarantined", {
+      corruptBytes: text.length,
+      quarantine,
+    });
+  } catch (e) {
+    log.error("credentials", "settings.json corrupt; quarantine failed", {
+      message: String(e),
+    });
+    return { data: null, state: "unusable" };
+  }
+  return { data: {}, state: "quarantined" };
+}
+
+function readSettings() {
+  return loadSettings().data || {};
+}
+
+// Atomic write: a plain writeFileSync truncates the file in place, so an unclean
+// shutdown mid-write leaves a zero-length settings.json. Write a temp file, flush
+// it to disk, then rename over the primary (rename is atomic on NTFS). Keep the
+// previous good copy in settings.json.bak so corruption is always recoverable.
 function writeSettings(obj) {
-  fs.writeFileSync(settingsPath(), JSON.stringify(obj, null, 2), { mode: 0o600 });
+  const p = settingsPath();
+  const tmp = `${p}.tmp`;
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+
+  try {
+    if (fs.existsSync(p) && parseSettings(fs.readFileSync(p, "utf8"))) {
+      fs.copyFileSync(p, backupPath());
+    }
+  } catch (e) {
+    log.warn("credentials", "could not refresh settings backup", { message: String(e) });
+  }
+
+  const fd = fs.openSync(tmp, "w", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(obj, null, 2));
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, p);
 }
 
 // Fixed, shared credentials dir used by BOTH our transient sign-in server and the
@@ -64,18 +163,47 @@ async function getSecretResilient() {
   return null;
 }
 
+// Number of per-account token files already on disk. Used to tell a genuinely
+// fresh machine apart from one whose settings.json was lost: tokens (and a stored
+// secret) without a clientId means "your config went missing", not "welcome".
+function countTokenFiles() {
+  try {
+    return fs
+      .readdirSync(credentialsDir())
+      .filter((f) => f.endsWith(".json") && f !== "oauth_states.json").length;
+  } catch {
+    return 0;
+  }
+}
+
 async function getClientConfig() {
-  const s = readSettings();
+  const { data, state } = loadSettings();
+  const s = data || {};
   const hasSecret = (await getSecretResilient()) != null;
+  const clientId = s.clientId || "";
+  const tokenCount = countTokenFiles();
   return {
-    clientId: s.clientId || "",
+    clientId,
     hasSecret,
     credentialsDir: credentialsDir(),
+    settingsState: state,
+    tokenCount,
+    // The renderer shows a recovery prompt instead of the first-run screen when
+    // this is true (previous setup detected, but the clientId is gone).
+    needsRecovery: !clientId && (hasSecret || tokenCount > 0),
   };
 }
 
 async function saveClientConfig(clientId, clientSecret) {
-  const s = readSettings();
+  const { data, state } = loadSettings();
+  if (data === null) {
+    // Don't half-save into a config we can't read - the user would end up with a
+    // clientId and nothing else. Surface it instead.
+    throw new Error(
+      `Settings file is unreadable (${state}). Not saving, to avoid losing your existing configuration.`
+    );
+  }
+  const s = data;
   s.clientId = (clientId || "").trim();
   if (!s.credentialsDir) s.credentialsDir = credentialsDir();
   if (clientSecret) {
@@ -133,9 +261,20 @@ async function getClientSecret() {
 
 // Merge a partial object into settings.json and persist (for non-secret prefs
 // like the autostart choice). Returns the updated settings.
+//
+// If the existing settings could not be read, this does NOT write. Merging into
+// the {} we would otherwise have fallen back to would silently erase the real
+// config (clientId, credentialsDir, autostart) on the next window move.
 function patchSettings(partial) {
-  const s = readSettings();
-  Object.assign(s, partial || {});
+  const { data, state } = loadSettings();
+  if (data === null) {
+    log.error("credentials", "refusing to patch settings over an unreadable file", {
+      state,
+      wouldHaveSet: Object.keys(partial || {}),
+    });
+    return {};
+  }
+  const s = Object.assign({}, data, partial || {});
   writeSettings(s);
   return s;
 }

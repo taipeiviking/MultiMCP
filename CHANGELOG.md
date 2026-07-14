@@ -4,6 +4,28 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.3.9 — 2026-07-14
+*Stops a PC restart from wiping your settings — the real cause of the "not set up" screen.*
+
+### Fixed
+- **Your configuration can no longer be lost on reboot.** `settings.json` was written with a
+  plain in-place write, so an unclean shutdown could leave it truncated. The next read then
+  silently fell back to "empty settings", and the next save (even just moving the window) wrote
+  that emptiness back over the file — permanently erasing the Client ID. Settings are now written
+  **atomically** (temp file, flushed, then renamed) and a rolling `settings.json.bak` is kept.
+  A corrupt file is recovered from the backup automatically, and if the settings can't be read at
+  all, the app now **refuses to overwrite them** rather than replacing them with an empty file.
+  This — not the Credential Manager timing fixed in v0.3.8 — was the real reason the setup screen
+  kept coming back.
+- **The connector is restored automatically after a Claude Desktop reinstall.** Reinstalling
+  Claude replaces `claude_desktop_config.json`, which dropped the `google_workspace` entry. The
+  app now puts it back on launch on any machine where it previously wrote it.
+
+### Changed
+- **The first-run screen tells the truth when settings go missing.** If sign-ins and a stored
+  Client Secret are still present but the Client ID is gone, the app now says *"Your settings
+  appear to have been lost"* and points to Import — instead of greeting you as a brand-new user.
+
 ## v0.3.8 — 2026-07-14
 *No more false "not set up" screen at boot.*
 

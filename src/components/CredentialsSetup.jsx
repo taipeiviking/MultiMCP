@@ -25,11 +25,41 @@ export default function CredentialsSetup({ creds, onSaved, editing }) {
     }
   }
 
+  // A previous setup is still on this machine (token files and/or a stored secret)
+  // but the Client ID is gone. Say so, instead of greeting the user as if they had
+  // never configured the app - that framing sent them hunting for a bug in Claude
+  // when what they actually needed was Import.
+  const recovering = !editing && !!creds?.needsRecovery;
+  const accounts = creds?.tokenCount || 0;
+
   return (
     <section className="card setup">
       <h1 className="setup__title">
-        {editing ? "Google OAuth client (shared by all accounts)" : "Connect your Google OAuth client"}
+        {editing
+          ? "Google OAuth client (shared by all accounts)"
+          : recovering
+            ? "Restore your configuration"
+            : "Connect your Google OAuth client"}
       </h1>
+
+      {recovering && (
+        <div className="notice notice--warn">
+          <strong>Your settings appear to have been lost.</strong> This computer still has{" "}
+          {accounts > 0 && (
+            <>
+              <strong>
+                {accounts} signed-in account{accounts === 1 ? "" : "s"}
+              </strong>
+              {creds?.hasSecret ? " and " : ""}
+            </>
+          )}
+          {creds?.hasSecret && <>your <strong>Client Secret</strong></>}, but the{" "}
+          <strong>Client ID</strong> is missing — so this is a recovery, not a fresh
+          setup. Import your exported configuration file below to restore everything,
+          or paste the Client ID again.
+        </div>
+      )}
+
       <p className="muted">
         This is your project's <strong>one</strong> OAuth client — the same{" "}
         <strong>Client ID</strong> and <strong>Client Secret</strong> are used to sign in{" "}

@@ -103,7 +103,23 @@ async function healServerEntryIfStale() {
   try {
     const cfg = readConfig();
     const existing = cfg.mcpServers && cfg.mcpServers[SERVER_KEY];
-    if (!existing) return { healed: false, reason: "no existing entry" };
+
+    // Entry gone entirely. This is not necessarily a fresh machine: reinstalling
+    // Claude Desktop replaces claude_desktop_config.json, silently dropping the
+    // connector. If we wrote the entry before and are still configured, put it
+    // back. The `claudeConfigWritten` marker is what keeps this from re-adding an
+    // entry the user deliberately removed on a machine we never set up.
+    if (!existing) {
+      const settings = credentials.readSettings();
+      if (!settings.claudeConfigWritten) {
+        return { healed: false, reason: "no existing entry (never written by us)" };
+      }
+      const { clientId } = await credentials.getClientConfig();
+      if (!clientId) return { healed: false, reason: "no existing entry (not configured)" };
+      await writeServerEntry();
+      log.info("claudeConfig", "Re-added missing google_workspace entry", { path: configPath() });
+      return { healed: true, reason: "entry missing (restored)" };
+    }
 
     const cmd = existing.command;
     const isBare = !cmd || !path.isAbsolute(cmd); // "uvx" (no path) can't be found by Claude
@@ -157,6 +173,10 @@ async function writeServerEntry() {
   const existingServers = Object.keys(cfg.mcpServers);
   cfg.mcpServers[SERVER_KEY] = entry; // merge: only our key is replaced
   fs.writeFileSync(p, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+
+  // Remember that this machine's Claude config is ours to maintain, so that a
+  // later Claude reinstall (which wipes the file) can be healed automatically.
+  credentials.patchSettings({ claudeConfigWritten: true });
 
   log.info("claudeConfig", "Wrote Claude Desktop config", {
     path: p,

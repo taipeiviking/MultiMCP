@@ -15,8 +15,10 @@ export default function App() {
     // the very first credentials read can transiently come back empty (Credential
     // Manager not ready yet), which would wrongly show the first-run setup screen.
     // Retry a few times if it looks unconfigured before committing to that view.
+    // `needsRecovery` is a definitive answer (settings were lost), not a slow one -
+    // retrying it just delays the screen that explains what happened.
     let c = await api.credentials.get();
-    for (let i = 0; i < 4 && (!c?.clientId || !c?.hasSecret); i++) {
+    for (let i = 0; i < 4 && !c?.needsRecovery && (!c?.clientId || !c?.hasSecret); i++) {
       await new Promise((r) => setTimeout(r, 400));
       c = await api.credentials.get();
     }

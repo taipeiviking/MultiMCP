@@ -192,6 +192,18 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 .toggle-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--amber); flex: none; }
 .toggle-row span { cursor: pointer; }
 .error { color: var(--bad); font-size: 13px; margin: 6px 0; }
+.notice {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.notice--warn {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+}
 .backup-msg--ok { color: var(--good, #3fb950); margin: 8px 0 0; }
 .backup-msg--err { color: var(--bad); margin: 8px 0 0; }
 .import-body { padding: 12px 16px; }
