@@ -6,13 +6,22 @@
 > notifications and autostart; packages to a Windows NSIS installer. §8 documents the
 > UI as built. See HELP.md for the end-user guide.
 >
-> **v0.3.5** — re-auth status is now driven by a **live refresh-token check** against
-> Google (not a fixed 7-day guess), plus a `productionMode` flag (manual checkbox +
-> auto-learn) that drops the countdown. Multi-account remains fully supported (one
-> shared credentials dir + one server entry; Claude selects the account per request).
-> It also **pre-warms the uvx/workspace-mcp cache** (on launch + every 6h) so a
-> workspace-mcp version bump installs in the background rather than timing out Claude's
-> MCP attach ("Could not attach to MCP server google_workspace").
+> **Current: v0.3.8.** Recent hardening (see CHANGELOG.md for the full list):
+> - **v0.3.5** — re-auth status is driven by a **live refresh-token check** against Google
+>   (not a fixed 7-day guess), plus a `productionMode` flag (manual checkbox + auto-learn)
+>   that drops the countdown; **pre-warms the uvx/workspace-mcp cache** (launch + every 6h)
+>   so a workspace-mcp bump doesn't time out Claude's MCP attach.
+> - **v0.3.6** — autostart uses a Task Scheduler "At log on" task (per-user, no admin) with
+>   the `HKCU\…\Run` value as fallback, so it survives Windows **Fast Startup**.
+> - **v0.3.7** — sign-in callback window extended to **10 min** (unverified-app consent,
+>   esp. a personal @gmail with restricted scopes, can take >3 min).
+> - **v0.3.8** — the first-run setup screen no longer shows falsely at boot: the credential
+>   read retries when Windows Credential Manager is briefly unavailable after login.
+>
+> Port design (v0.3.4): the interactive **sign-in** uses port **8000** (the registered
+> redirect URI); **Claude's** background server is pinned to **9000** so the two never
+> contend. Multi-account remains fully supported (one shared credentials dir + one server
+> entry; Claude selects the account per request).
 
 ## 1. Purpose
 

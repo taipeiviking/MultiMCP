@@ -55,7 +55,8 @@ primed here. That's the whole trick.
 ## Installing (from a GitHub Release)
 
 1. Go to **https://github.com/taipeiviking/MultiMCP/releases/latest**
-2. Download **`Google-Workspace-Manager-Setup-0.3.5.exe`**.
+2. Under **Assets**, download the installer **`Google-Workspace-Manager-Setup-<version>.exe`**
+   (the newest version — e.g. `…-0.3.8.exe`).
 3. Run it. Because the file was **downloaded from the internet**, Windows
    **SmartScreen** may show a one-time *"Windows protected your PC"* notice (this
    happens for any app without a paid code-signing certificate, signed or not).
@@ -367,8 +368,26 @@ exceed Claude's attach timeout. The tray app **pre-warms** this in the backgroun
 launch + every 6h), so keep it running. If you still see it, **reopen Claude once
 more** — the first (failed) attach finishes the install, so the next attach is fast.
 
+**"MCP google_workspace: Server disconnected"** — usually **not** a real failure. Claude
+shows this when a server it previously had is no longer connected — e.g. after the PC
+slept, or after Claude was quit/updated. The server re-spawns fine on the next request
+(check the connectors menu — the tools are still there). If it's **persistent**, the most
+common cause is running the **Microsoft Store** build of Claude Desktop: its sandboxing is
+less reliable for long-lived local (stdio) MCP servers. Installing the regular **installer**
+build from <https://claude.ai/download> (and uninstalling the Store one, so two Claudes
+don't both spawn a server on port 9000) typically resolves it. Both builds read the same
+config at `%APPDATA%\Claude`, so nothing to reconfigure — just **Write config** again and
+fully **quit + reopen** Claude. Ref: [MCP debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
+
+**The "Connect your Google OAuth client" screen appears even though you're set up** — a
+boot-timing race (Windows Credential Manager briefly unavailable when the app autostarts
+hidden after login). Fixed in **v0.3.8**; on older versions, just fully **quit and reopen**
+the app. Your Client ID/secret/tokens are not lost. (Worst case, use **Import configuration
+from a file…** with your latest exported backup.)
+
 **Port 8000 in use** — another process is using the OAuth callback port. Close it
-and retry the sign-in.
+and retry the sign-in. (The app's sign-in uses **8000**; Claude's own server is pinned to
+**9000**, so they don't clash — v0.3.4+.)
 
 **Reveal log** opens `%APPDATA%\google-workspace-manager\logs\`. Attach `app.log`
 when reporting an issue (it's secret-redacted).
