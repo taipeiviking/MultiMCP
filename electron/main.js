@@ -29,6 +29,7 @@ const credentials = require("./services/credentials");
 const accounts = require("./services/accounts");
 const serverManager = require("./services/serverManager");
 const claudeConfig = require("./services/claudeConfig");
+const noBrowser = require("./services/noBrowser");
 const backup = require("./services/backup");
 const log = require("./services/logger");
 
@@ -65,8 +66,13 @@ function bootstrap() {
     registerIpc();
     Menu.setApplicationMenu(null); // no native menu bar; Help is an in-app button
     applyAutostartPreference();
-    // Self-heal a stale Claude config (bare "uvx" / missing path -> bundled path),
-    // so an old config can't keep causing Claude's "spawn uvx ENOENT".
+    // Create the no-op browser shim BEFORE healing the config: buildEntry() only
+    // sets BROWSER when the shim exists on disk, so if this ran after the heal, the
+    // first launch after an update would write an entry without it.
+    noBrowser.ensureShim();
+    // Self-heal a stale Claude config (bare "uvx" / missing path -> bundled path,
+    // and any drift in a load-bearing env key), so an old config can't keep causing
+    // Claude's "spawn uvx ENOENT" - or, since v0.4.0, the spurious OAuth tabs.
     claudeConfig
       .healServerEntryIfStale()
       .then((r) => r.healed && log.info("app", "claude config auto-healed", r))
@@ -504,6 +510,7 @@ async function checkExpiries(manual) {
   } catch (e) {
     log.error("expiry", "verifyAll failed", { message: String(e) });
   }
+  await reportSuppressedAuth();
   let list = [];
   try {
     list = accounts.listAccounts();
@@ -537,6 +544,58 @@ async function checkExpiries(manual) {
             : `${bad.length} account(s) need re-auth.`,
         icon: path.join(__dirname, "assets", "icon.png"),
       }).show();
+    }
+  }
+}
+
+// Claude's background server can still decide an account needs authorizing (a truly
+// revoked token, a deleted credential file). We stop it opening a browser tab
+// (noBrowser.js), which means the demand would otherwise be INVISIBLE - the user
+// would just see a tool call fail. So read what the shim swallowed and turn it into
+// something honest: verify the account for real, and only then tell the user.
+async function reportSuppressedAuth() {
+  let suppressed = [];
+  try {
+    suppressed = noBrowser.readSuppressed();
+  } catch (e) {
+    log.error("noBrowser", "could not read suppressed auth log", { message: String(e) });
+    return;
+  }
+  if (!suppressed.length) return;
+
+  const emails = [...new Set(suppressed.map((s) => s.email).filter(Boolean))];
+  log.info("noBrowser", "background server tried to open OAuth tabs (suppressed)", {
+    count: suppressed.length,
+    emails,
+  });
+  noBrowser.clearSuppressed();
+
+  for (const email of emails) {
+    let ok = false;
+    try {
+      const res = await accounts.verifyAccount(email);
+      ok = !!(res && res.ok);
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      // The token is fine, so the server should never have asked. That means the
+      // MCP_SINGLE_USER_MODE fix has regressed (or Claude is running a stale entry
+      // from before the fix). Don't nag the user about an account that works.
+      log.warn("noBrowser", "auth demanded for an account whose token verifies OK", {
+        email,
+        hint: "stale Claude config, or upstream changed MCP_SINGLE_USER_MODE semantics",
+      });
+      continue;
+    }
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: "Google Workspace Manager",
+        body: `${email} needs to be signed in again. Open the app and click Re-auth.`,
+        icon: path.join(__dirname, "assets", "icon.png"),
+      });
+      n.on("click", () => showWindow());
+      n.show();
     }
   }
 }

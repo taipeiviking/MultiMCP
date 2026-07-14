@@ -140,14 +140,23 @@ async function checkPrerequisites() {
 async function baseEnv() {
   const { clientId, credentialsDir } = await credentials.getClientConfig();
   const clientSecret = await credentials.getClientSecret();
-  return {
+  const env = {
     ...process.env,
     GOOGLE_OAUTH_CLIENT_ID: clientId,
     GOOGLE_OAUTH_CLIENT_SECRET: clientSecret || "",
     GOOGLE_MCP_CREDENTIALS_DIR: credentialsDir,
+    WORKSPACE_MCP_CREDENTIALS_DIR: credentialsDir,
     OAUTHLIB_INSECURE_TRANSPORT: "1",
     WORKSPACE_MCP_PORT: String(SIGNIN_PORT),
   };
+
+  // THIS sign-in is the one place a real browser SHOULD open: it runs on the
+  // registered redirect port (8000) and the user is expecting a consent screen.
+  // We inherit process.env, so strip the BROWSER no-op shim that we set for
+  // Claude's background server (see noBrowser.js) in case it is set machine-wide -
+  // otherwise the consent page would be swallowed and sign-in would hang forever.
+  delete env.BROWSER;
+  return env;
 }
 
 let signinProc = null;

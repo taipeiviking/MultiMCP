@@ -4,6 +4,40 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.4.0 — 2026-07-15
+*No more surprise Google sign-in tabs — and the connector is now called **MultiMCP**.*
+
+### Fixed
+- **The connector no longer opens unwanted Google sign-in tabs.** Using more than one account
+  in a single Claude conversation would open a browser tab per account — every one of them
+  landing on *"Access blocked: this app's request is invalid — Error 400: redirect_uri_mismatch"*.
+  The cause was in `workspace-mcp`: it binds the MCP session to the **first** account that
+  refreshes a token, and that binding is immutable
+  (`auth/oauth21_session_store.py:653-665`). For every *later* account the token refreshes
+  successfully and is written to disk — and then the binding check raises `ValueError`, which a
+  broad `except Exception` around the refresh swallows and returns as "no credentials"
+  (`auth/google_auth.py:1167-1172`). The server concludes you are not signed in and launches an
+  OAuth flow. Because access tokens last an hour, this fired in essentially every real session —
+  it was triggered by *using multiple accounts*, which is the whole point of this app. We now
+  run the server with `MCP_SINGLE_USER_MODE=1`, which bypasses that session→user binding and
+  looks credentials up by the email the tool was called with. (Despite the name it does **not**
+  limit you to one account.)
+- **Claude's background server can no longer open a browser at all.** Even with the above, a
+  genuinely revoked token could still reach the same code path. Its `BROWSER` is now pointed at a
+  no-op shim, so it is physically incapable of hijacking your browser. When an account really does
+  need signing in, the app tells you with a notification instead — sign in from the app, on the
+  registered port, as always.
+- **Port 9000 is deliberately still not a registered redirect URI.** That is a safety interlock,
+  not an oversight: a background process silently completing an OAuth consent — possibly for the
+  wrong account — is worse than a visible failure.
+
+### Changed
+- **The connector is now called `MultiMCP` in Claude, matching the app.** It used to appear as
+  `google_workspace`, which made it unclear the tray app and the connector were the same thing.
+  The old entry is removed automatically when the new one is written — you won't get two.
+- Config repair now notices when *any* load-bearing setting has drifted, not just the port, so
+  existing installs actually receive fixes like this one.
+
 ## v0.3.9 — 2026-07-14
 *Stops a PC restart from wiping your settings — the real cause of the "not set up" screen.*
 

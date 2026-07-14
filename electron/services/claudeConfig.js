@@ -6,9 +6,22 @@ const fs = require("fs");
 const path = require("path");
 const credentials = require("./credentials");
 const serverManager = require("./serverManager");
+const noBrowser = require("./noBrowser");
 const log = require("./logger");
 
-const SERVER_KEY = "google_workspace";
+// The key in claude_desktop_config.json IS the connector name Claude shows in its
+// UI. It used to be "google_workspace", which didn't match the tray app's name and
+// left people unsure the two were the same thing. Renamed to match the app.
+const SERVER_KEY = "MultiMCP";
+
+// Older names we must clean up when we (re)write the entry - otherwise Claude would
+// list the connector twice, and the stale one would still spawn a second server.
+const LEGACY_SERVER_KEYS = ["google_workspace"];
+
+function findLegacyKey(cfg) {
+  const servers = cfg.mcpServers || {};
+  return LEGACY_SERVER_KEYS.find((k) => servers[k]) || null;
+}
 
 // Claude's BACKGROUND server gets its OWN port, separate from the tray app's
 // interactive sign-in port (serverManager.SIGNIN_PORT = 8000). Why: both the tray
@@ -17,9 +30,31 @@ const SERVER_KEY = "google_workspace";
 // interactive sign-in on 8002 fails with redirect_uri_mismatch (only :8000 is
 // registered). By pinning Claude's server to 9000, port 8000 stays FREE for the
 // tray app's sign-in, so the consent redirect always uses the registered :8000.
-// Claude's server never does an interactive consent (it refreshes tokens directly),
-// so its port does not need to be registered as a redirect URI.
+//
+// :9000 is deliberately NOT a registered redirect URI, and must stay that way. It
+// is a safety interlock: if the background server ever does start an OAuth flow, we
+// want that flow to be incapable of completing. A background process silently
+// obtaining consent - and, with prompt=select_account, possibly for the WRONG
+// account, overwriting a token file - is worse than a visible failure.
 const CLAUDE_MCP_PORT = 9000;
+
+// Env keys that must match for an existing entry to count as up to date. Anything
+// here is load-bearing; if we add a key and don't list it, existing installs keep
+// the old entry forever (healServerEntryIfStale would say "entry ok").
+const CRITICAL_ENV = [
+  "MCP_SINGLE_USER_MODE",
+  "BROWSER",
+  "WORKSPACE_MCP_PORT",
+  "GOOGLE_MCP_CREDENTIALS_DIR",
+  "GOOGLE_OAUTH_CLIENT_ID",
+];
+
+function entryMatches(existing, desired) {
+  if (!existing || !existing.env) return false;
+  if (existing.command !== desired.command) return false;
+  if (JSON.stringify(existing.args) !== JSON.stringify(desired.args)) return false;
+  return CRITICAL_ENV.every((k) => existing.env[k] === desired.env[k]);
+}
 
 function configPath() {
   // Windows: %APPDATA%\Claude\claude_desktop_config.json
@@ -62,15 +97,55 @@ async function buildEntry() {
   const env = {
     GOOGLE_OAUTH_CLIENT_ID: clientId,
     GOOGLE_MCP_CREDENTIALS_DIR: credentialsDir,
+    // Newer workspace-mcp prefers WORKSPACE_MCP_CREDENTIALS_DIR and checks it FIRST
+    // (credential_store.py:88-106). Set both, so a stray machine-level value can't
+    // silently win and point the server at an empty dir - which would make every
+    // account look unauthenticated, i.e. this same bug by another route.
+    WORKSPACE_MCP_CREDENTIALS_DIR: credentialsDir,
     OAUTHLIB_INSECURE_TRANSPORT: "1",
     // Pin Claude's background server to its OWN port (not the tray app's 8000), so
     // the two never contend for 8000. See CLAUDE_MCP_PORT note above.
     WORKSPACE_MCP_PORT: String(CLAUDE_MCP_PORT),
+    // Bare PORT is read BEFORE WORKSPACE_MCP_PORT (core/config.py:38,
+    // port_resolver.py:87-88). A machine-level PORT=8000 would collapse the
+    // 8000/9000 split and steal the tray app's registered sign-in port.
+    PORT: String(CLAUDE_MCP_PORT),
     WORKSPACE_MCP_BASE_URI: "http://localhost",
+
+    // THE FIX for the spurious OAuth tabs.
+    //
+    // workspace-mcp binds the MCP session to the FIRST account that refreshes a
+    // token, and that binding is immutable (oauth21_session_store.py:653-665). For
+    // every LATER distinct account, the token refreshes fine and is written to disk,
+    // and then store_session() raises ValueError("Session ... is already bound to a
+    // different user"). That ValueError is swallowed by the broad `except Exception`
+    // around the refresh (google_auth.py:1167-1172) and returned as None, so the
+    // caller concludes "not authenticated" and calls start_auth_flow() ->
+    // webbrowser.open(). One unwanted tab per account, on every session where the
+    // tokens are older than an hour - i.e. every real multi-account session, which
+    // is the entire point of this app.
+    //
+    // "Single user" is a misnomer: it does NOT limit us to one account. It bypasses
+    // the session->user mapping and looks credentials up by the email the tool was
+    // called with (google_auth.py:1003-1022), which is exactly what we want. Leave
+    // USER_GOOGLE_EMAIL unset - setting it would make user_google_email optional and
+    // let a tool call silently default to the wrong account.
+    //
+    // Set via env, not the --single-user CLI flag: an unknown env var is inert, but
+    // an argparse flag that upstream renames is a hard exit(1) and the connector dies.
+    MCP_SINGLE_USER_MODE: "1",
   };
   if (injectSecret) {
     env.GOOGLE_OAUTH_CLIENT_SECRET = clientSecret || "";
   }
+
+  // Belt and braces: even with the above, a genuinely revoked token still reaches
+  // start_auth_flow(). Point BROWSER at a shim so the background server physically
+  // cannot open a tab. Only set it if the shim really exists on disk - a BROWSER
+  // pointing at a missing file (or an empty string) FAILS OPEN, i.e. the real
+  // browser opens after all. See noBrowser.js.
+  const shim = noBrowser.shimPathIfPresent();
+  if (shim) env.BROWSER = shim;
 
   return {
     command: uvxPath || "uvx",
@@ -82,15 +157,12 @@ async function buildEntry() {
 async function getStatus() {
   const cfg = readConfig();
   const existing = cfg.mcpServers && cfg.mcpServers[SERVER_KEY];
+  const legacyKey = findLegacyKey(cfg);
   const desired = await buildEntry();
-  const inSync =
-    !!existing &&
-    existing.command === desired.command &&
-    JSON.stringify(existing.args) === JSON.stringify(desired.args) &&
-    existing.env &&
-    existing.env.GOOGLE_MCP_CREDENTIALS_DIR === desired.env.GOOGLE_MCP_CREDENTIALS_DIR &&
-    existing.env.GOOGLE_OAUTH_CLIENT_ID === desired.env.GOOGLE_OAUTH_CLIENT_ID;
-  return { present: !!existing, inSync, path: configPath() };
+  // A leftover google_workspace entry means "not in sync" even if ours looks right:
+  // Claude would spawn BOTH servers, and the old one still opens OAuth tabs.
+  const inSync = !legacyKey && entryMatches(existing, desired);
+  return { present: !!existing, inSync, legacyKey, path: configPath() };
 }
 
 // Self-heal a stale config at startup. Rewrites the google_workspace entry when:
@@ -109,6 +181,18 @@ async function healServerEntryIfStale() {
     // connector. If we wrote the entry before and are still configured, put it
     // back. The `claudeConfigWritten` marker is what keeps this from re-adding an
     // entry the user deliberately removed on a machine we never set up.
+    // An entry under the OLD name is ours: migrate it to the new one (writeServerEntry
+    // deletes the legacy key). Do this before the "missing entry" branch, or the
+    // rename would look like a fresh install and leave both keys behind.
+    const legacyKey = findLegacyKey(cfg);
+    if (!existing && legacyKey) {
+      const { clientId } = await credentials.getClientConfig();
+      if (!clientId) return { healed: false, reason: `legacy "${legacyKey}" entry but not configured` };
+      await writeServerEntry();
+      log.info("claudeConfig", "Renamed connector", { from: legacyKey, to: SERVER_KEY });
+      return { healed: true, reason: `renamed "${legacyKey}" -> "${SERVER_KEY}"` };
+    }
+
     if (!existing) {
       const settings = credentials.readSettings();
       if (!settings.claudeConfigWritten) {
@@ -117,20 +201,28 @@ async function healServerEntryIfStale() {
       const { clientId } = await credentials.getClientConfig();
       if (!clientId) return { healed: false, reason: "no existing entry (not configured)" };
       await writeServerEntry();
-      log.info("claudeConfig", "Re-added missing google_workspace entry", { path: configPath() });
+      log.info("claudeConfig", `Re-added missing ${SERVER_KEY} entry`, { path: configPath() });
       return { healed: true, reason: "entry missing (restored)" };
+    }
+
+    // Our entry exists but a stale legacy one is still alongside it - drop the old one.
+    if (legacyKey) {
+      await writeServerEntry();
+      log.info("claudeConfig", "Removed leftover legacy connector", { legacyKey });
+      return { healed: true, reason: `removed leftover "${legacyKey}"` };
     }
 
     const cmd = existing.command;
     const isBare = !cmd || !path.isAbsolute(cmd); // "uvx" (no path) can't be found by Claude
     const missing = cmd && path.isAbsolute(cmd) && !fs.existsSync(cmd);
-    // Claude's server must be pinned to CLAUDE_MCP_PORT (9000), NOT 8000 — a config
-    // from an older build (or no port / the wrong 8000 pin) needs rewriting so it
-    // stops contending with the tray app's sign-in on 8000.
-    const wantPort = String(CLAUDE_MCP_PORT);
-    const portWrong = !existing.env || existing.env.WORKSPACE_MCP_PORT !== wantPort;
+    // Any drift in a load-bearing env key (CRITICAL_ENV) is stale. This is what
+    // delivers a new setting - e.g. MCP_SINGLE_USER_MODE, the fix for the spurious
+    // OAuth tabs - to machines that already have an entry. Comparing only the port
+    // (as we used to) would report "entry ok" forever and they'd never get it.
+    const desired = await buildEntry();
+    const envStale = !entryMatches(existing, desired);
 
-    if (!isBare && !missing && !portWrong) {
+    if (!isBare && !missing && !envStale) {
       return { healed: false, reason: "entry ok" };
     }
 
@@ -141,12 +233,18 @@ async function healServerEntryIfStale() {
       return { healed: false, reason: "no valid uvx" };
     }
 
-    const reason = isBare ? "bare command" : missing ? "missing file" : "wrong port";
+    const staleKeys = existing.env
+      ? CRITICAL_ENV.filter((k) => existing.env[k] !== desired.env[k])
+      : CRITICAL_ENV;
+    const reason = isBare
+      ? "bare command"
+      : missing
+        ? "missing file"
+        : `stale env: ${staleKeys.join(", ")}`;
     await writeServerEntry();
     log.info("claudeConfig", "Healed stale Claude config", {
       was: cmd,
       now: good,
-      portWrong,
       reason,
     });
     return { healed: true, was: cmd, now: good, reason };
@@ -171,6 +269,13 @@ async function writeServerEntry() {
   cfg.mcpServers = cfg.mcpServers || {};
   const entry = await buildEntry();
   const existingServers = Object.keys(cfg.mcpServers);
+
+  // Drop any entry we used to write under an older name. Without this the rename
+  // leaves BOTH keys behind: Claude lists two connectors and spawns two servers,
+  // and the stale one keeps the old env - so it keeps opening OAuth tabs.
+  const removed = LEGACY_SERVER_KEYS.filter((k) => cfg.mcpServers[k]);
+  for (const k of removed) delete cfg.mcpServers[k];
+
   cfg.mcpServers[SERVER_KEY] = entry; // merge: only our key is replaced
   fs.writeFileSync(p, JSON.stringify(cfg, null, 2), { mode: 0o600 });
 
@@ -181,11 +286,16 @@ async function writeServerEntry() {
   log.info("claudeConfig", "Wrote Claude Desktop config", {
     path: p,
     backup,
+    key: SERVER_KEY,
+    removedLegacyKeys: removed,
     command: entry.command,
     args: entry.args,
     envKeys: Object.keys(entry.env),
     secretInjected: Object.prototype.hasOwnProperty.call(entry.env, "GOOGLE_OAUTH_CLIENT_SECRET"),
-    preservedServers: existingServers.filter((k) => k !== SERVER_KEY),
+    browserSuppressed: !!entry.env.BROWSER,
+    preservedServers: existingServers.filter(
+      (k) => k !== SERVER_KEY && !LEGACY_SERVER_KEYS.includes(k)
+    ),
   });
 
   return { ok: true, path: p, note: "Restart Claude Desktop to load changes." };
