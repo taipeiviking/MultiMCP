@@ -4,6 +4,44 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.5.0 — 2026-07-15
+*The same accounts, now in OpenAI Codex too.*
+
+### Added
+- **"Write Codex config" button.** Your Google accounts can now be used from **OpenAI Codex** as
+  well as Claude Desktop, from the same sign-ins — no re-authorizing. The app merges a `MultiMCP`
+  server into `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`). Codex reads that same file
+  whether you use the CLI, the IDE extension, or Codex inside the ChatGPT desktop app. Ordinary
+  ChatGPT conversations **cannot** use it — they only support remote MCP servers, not local ones.
+- The Codex row is hidden behind a plain explanation when Codex isn't installed, rather than a
+  dead button.
+
+### Notes on how it is done
+- **Codex gets its own port (9001).** Every MCP client spawns its *own* copy of the server, so
+  Claude (9000), Codex (9001) and the app's sign-in (8000) must never collide. Like 9000, port
+  9001 is deliberately **not** a registered redirect URI — the same safety interlock.
+- `MCP_SINGLE_USER_MODE=1` and the no-browser shim are set for Codex too, so it cannot suffer the
+  spurious sign-in tabs fixed in v0.4.0. Codex wipes the environment before launching a server, so
+  every variable is passed explicitly — including `BROWSER`, which *must* be set, because an unset
+  one falls through to the real browser.
+- Timeouts are raised (`startup_timeout_sec = 120`, `tool_timeout_sec = 300`): Codex's 10-second
+  default kills the server during a cold `uvx` start, and a Gmail batch fetch can outrun the
+  60-second tool default.
+- **Your `config.toml` is edited surgically, never rewritten.** It is a file you and the Codex app
+  both own — it holds your model, plugins, project trust levels and other MCP servers. The app
+  replaces only its own table, preserving every other byte including comments; it validates the
+  result in memory *before* touching the disk, takes a timestamped backup, writes atomically, then
+  re-reads and re-validates — and restores the backup if anything is off. If it finds a shape it
+  cannot edit safely, it refuses and says so rather than guessing.
+- The client secret is written into `config.toml`, exactly as it already is for Claude
+  (SPEC §9) — the server needs it to refresh tokens.
+
+### Known limitation
+- Claude and Codex share one credentials directory, and `workspace-mcp` writes token files
+  non-atomically. If both refresh the *same* account at the same instant, that account's token can
+  be corrupted and need re-signing. Narrow window, but real — and using both clients at once is
+  what makes it reachable.
+
 ## v0.4.0 — 2026-07-15
 *No more surprise Google sign-in tabs — and the connector is now called **MultiMCP**.*
 

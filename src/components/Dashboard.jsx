@@ -7,6 +7,8 @@ const api = window.api;
 export default function Dashboard({ creds, onChangeCreds }) {
   const [accounts, setAccounts] = useState([]);
   const [claude, setClaude] = useState(null);
+  const [codex, setCodex] = useState(null);
+  const [codexErr, setCodexErr] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [dbg, setDbg] = useState(null);
@@ -23,9 +25,14 @@ export default function Dashboard({ creds, onChangeCreds }) {
   }
 
   const refresh = useCallback(async () => {
-    const [a, c] = await Promise.all([api.accounts.list(), api.claude.status()]);
+    const [a, c, x] = await Promise.all([
+      api.accounts.list(),
+      api.claude.status(),
+      api.codex?.status().catch(() => null),
+    ]);
     setAccounts(a);
     setClaude(c);
+    setCodex(x);
   }, []);
 
   useEffect(() => {
@@ -73,6 +80,18 @@ export default function Dashboard({ creds, onChangeCreds }) {
   async function writeClaude() {
     setBusy(true);
     await api.claude.write();
+    await refresh();
+    setBusy(false);
+  }
+
+  async function writeCodex() {
+    setBusy(true);
+    setCodexErr("");
+    // Unlike Claude's JSON config, this one edits a TOML file the user (and the
+    // Codex app itself) also write to. The service refuses rather than guesses, so
+    // surface the refusal instead of silently doing nothing.
+    const r = await api.codex.write();
+    if (r && r.ok === false) setCodexErr(r.error || "Could not write the Codex config.");
     await refresh();
     setBusy(false);
   }
@@ -142,6 +161,7 @@ export default function Dashboard({ creds, onChangeCreds }) {
       </div>
 
       <ClaudeStrip claude={claude} busy={busy} onWrite={writeClaude} />
+      <CodexStrip codex={codex} busy={busy} err={codexErr} onWrite={writeCodex} />
 
       {prefs?.productionMode ? (
         <p className="muted small note">
@@ -278,5 +298,52 @@ function ClaudeStrip({ claude, busy, onWrite }) {
         {busy ? "Writing…" : state === "ok" ? "✓ Done" : "Write config"}
       </button>
     </div>
+  );
+}
+
+// The same connector, offered to OpenAI Codex. Codex runs the identical server as a
+// separate process of its own, so it needs its own port (9001) - that is handled in
+// the service, not here.
+//
+// If Codex isn't installed we still show the row, but as a quiet explanation rather
+// than a dead button: most people have never heard of Codex, and a greyed-out control
+// with no reason attached just looks broken.
+function CodexStrip({ codex, busy, err, onWrite }) {
+  if (!codex) return null;
+
+  if (!codex.installed) {
+    return (
+      <div className="claude-strip claude-strip--absent">
+        <span className="muted small">
+          <strong>OpenAI Codex</strong> isn't installed — nothing to do here. If you install it
+          later, come back and you can add the same accounts to it in one click.
+        </span>
+      </div>
+    );
+  }
+
+  const state = codex.inSync ? "ok" : codex.present ? "stale" : "missing";
+  const label = codex.error
+    ? `Codex config: ${codex.error}`
+    : state === "ok"
+      ? "Codex config in sync"
+      : state === "stale"
+        ? "Codex config out of date"
+        : "Codex config not written yet";
+
+  return (
+    <>
+      <div className={`claude-strip claude-strip--${state}`}>
+        <span>{label}</span>
+        <button
+          className={`btn btn--small ${state === "ok" ? "btn--done" : ""}`}
+          onClick={onWrite}
+          disabled={busy || state === "ok" || !!codex.error}
+        >
+          {busy ? "Writing…" : state === "ok" ? "✓ Done" : "Write Codex config"}
+        </button>
+      </div>
+      {err && <div className="error">{err}</div>}
+    </>
   );
 }

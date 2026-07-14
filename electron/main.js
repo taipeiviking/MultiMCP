@@ -29,6 +29,7 @@ const credentials = require("./services/credentials");
 const accounts = require("./services/accounts");
 const serverManager = require("./services/serverManager");
 const claudeConfig = require("./services/claudeConfig");
+const codexConfig = require("./services/codexConfig");
 const noBrowser = require("./services/noBrowser");
 const backup = require("./services/backup");
 const log = require("./services/logger");
@@ -77,6 +78,13 @@ function bootstrap() {
       .healServerEntryIfStale()
       .then((r) => r.healed && log.info("app", "claude config auto-healed", r))
       .catch((e) => log.error("app", "config heal error", { message: String(e) }));
+    // Same for Codex, but ONLY on machines where we already wrote its config once
+    // (the codexConfigWritten marker). We never volunteer ourselves into a Codex
+    // setup the user never asked us to touch.
+    codexConfig
+      .healServerEntryIfStale()
+      .then((r) => r.healed && log.info("app", "codex config auto-healed", r))
+      .catch((e) => log.error("app", "codex heal error", { message: String(e) }));
     createTray();
     const startHidden =
       process.argv.includes("--hidden") ||
@@ -701,6 +709,18 @@ function registerIpc() {
   // claude config
   handle("claude:status", () => claudeConfig.getStatus());
   handle("claude:write", () => claudeConfig.writeServerEntry());
+
+  handle("codex:status", () => codexConfig.getStatus());
+  // Return the failure instead of throwing: writing this one edits a TOML file the
+  // user owns, and the service deliberately REFUSES on any shape it cannot edit
+  // safely. The renderer shows that reason verbatim - a silent no-op would be worse.
+  handle("codex:write", async () => {
+    try {
+      return await codexConfig.writeServerEntry();
+    } catch (e) {
+      return { ok: false, error: String(e && e.message ? e.message : e) };
+    }
+  });
 
   // diagnostics
   handle("server:test", () => serverManager.testServer());
