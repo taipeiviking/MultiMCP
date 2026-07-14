@@ -11,7 +11,16 @@ export default function App() {
   const [version, setVersion] = useState("");
 
   const refresh = useCallback(async () => {
-    const [c, p] = await Promise.all([api.credentials.get(), api.prereqs.check()]);
+    // Guard against a boot-time race: when the app autostarts right after login,
+    // the very first credentials read can transiently come back empty (Credential
+    // Manager not ready yet), which would wrongly show the first-run setup screen.
+    // Retry a few times if it looks unconfigured before committing to that view.
+    let c = await api.credentials.get();
+    for (let i = 0; i < 4 && (!c?.clientId || !c?.hasSecret); i++) {
+      await new Promise((r) => setTimeout(r, 400));
+      c = await api.credentials.get();
+    }
+    const p = await api.prereqs.check();
     setCreds(c);
     setPrereqs(p);
     setLoading(false);

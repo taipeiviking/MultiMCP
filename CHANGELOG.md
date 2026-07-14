@@ -4,6 +4,18 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.3.8 — 2026-07-14
+*No more false "not set up" screen at boot.*
+
+### Fixed
+- **Setup screen no longer appears at startup when you're already configured.** When the app
+  autostarts hidden right after login (especially after a Fast Startup resume), Windows
+  Credential Manager can briefly be unavailable, so the first credentials read came back empty
+  and the app fell to the first-run "Connect your Google OAuth client" screen — even though the
+  Client ID and secret were safely stored. Now the main process retries the Credential Manager
+  read with a short backoff, and the UI re-checks a few times before showing setup. Your data
+  was never lost in this case; a restart already fixed it — this stops it happening.
+
 ## v0.3.7 — 2026-07-13
 *Longer sign-in window for unverified-app consent.*
 

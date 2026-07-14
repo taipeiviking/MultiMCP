@@ -39,9 +39,34 @@ function credentialsDir() {
   );
 }
 
+// Read the secret from Credential Manager, tolerating a TRANSIENT failure right at
+// boot. When the app autostarts hidden immediately after login (esp. after a Fast
+// Startup resume), keytar/Credential Manager can briefly throw or return null before
+// the vault is ready — which made the UI wrongly show the first-run setup screen
+// even though a secret was stored. Retry a few times with a short backoff.
+async function getSecretResilient() {
+  const RETRIES = 5;
+  for (let i = 0; i < RETRIES; i++) {
+    try {
+      const v = await keytar.getPassword(SERVICE, SECRET_KEY);
+      if (v != null) return v;
+    } catch (e) {
+      log.warn("credentials", "keytar read failed (retrying)", {
+        attempt: i + 1,
+        message: String(e),
+      });
+    }
+    // Only keep retrying if settings say a secret SHOULD exist (avoids a pointless
+    // ~1s delay on a genuinely fresh, unconfigured machine).
+    if (!readSettings().clientId) break;
+    await new Promise((r) => setTimeout(r, 200 * (i + 1))); // 200,400,600,800ms
+  }
+  return null;
+}
+
 async function getClientConfig() {
   const s = readSettings();
-  const hasSecret = (await keytar.getPassword(SERVICE, SECRET_KEY)) != null;
+  const hasSecret = (await getSecretResilient()) != null;
   return {
     clientId: s.clientId || "",
     hasSecret,
