@@ -377,7 +377,8 @@ less reliable for long-lived local (stdio) MCP servers. Installing the regular *
 build from <https://claude.ai/download> (and uninstalling the Store one, so two Claudes
 don't both spawn a server on port 9000) typically resolves it. Both builds read the same
 config at `%APPDATA%\Claude`, so nothing to reconfigure — just **Write config** again and
-fully **quit + reopen** Claude. Ref: [MCP debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
+fully **quit + reopen** Claude. **Step-by-step:** [docs/SWITCH_CLAUDE_BUILD.md](docs/SWITCH_CLAUDE_BUILD.md).
+Ref: [MCP debugging guide](https://modelcontextprotocol.io/docs/tools/debugging).
 
 **The "Connect your Google OAuth client" screen appears even though you're set up** — a
 boot-timing race (Windows Credential Manager briefly unavailable when the app autostarts
