@@ -4,6 +4,16 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.8.0 — 2026-07-15
+*Label your accounts ("Personal", "Work") so the AI picks the right one.*
+
+### Added
+- **Account labels.** Give each account a short label — **Personal**, **Work**, **Assaya** — right on
+  its card. When you ask "check my personal email", the AI can now map that to the correct account
+  instead of guessing (it picked the wrong one before). The labels are woven into the **usage rules**
+  the "Add usage rules…" button writes, so a fresh session gets the mapping too: *Connected accounts:
+  clas.sivertsen@gmail.com (Personal), clas@liquacool.com (Work), …*
+
 ## v0.7.1 — 2026-07-15
 *Make the Codex usage rules actually stick.*
 

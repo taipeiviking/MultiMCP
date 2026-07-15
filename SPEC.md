@@ -6,7 +6,7 @@
 > notifications and autostart; packages to a Windows NSIS installer. §8 documents the
 > UI as built. See HELP.md for the end-user guide.
 >
-> **Current: v0.5.1.** Recent hardening (see CHANGELOG.md for the full list):
+> **Current: v0.8.0.** Recent hardening (see CHANGELOG.md for the full list):
 > - **v0.3.5** — re-auth status is driven by a **live refresh-token check** against Google
 >   (not a fixed 7-day guess), plus a `productionMode` flag (manual checkbox + auto-learn)
 >   that drops the countdown; **pre-warms the uvx/workspace-mcp cache** (launch + every 6h)
@@ -52,6 +52,11 @@
 >   *unreadable* config as an empty one (§6a) — the last of the three config writers to get
 >   the v0.3.9 treatment. Cosmetic: the header no longer claims the app is Claude-only, and an
 >   unwritten Codex config is no longer rendered as an error (§8).
+> - **v0.8.0** — **account labels.** Each connected account carries a short, editable label
+>   ("Personal", "Work", "Assaya", …), stored per-account in `accounts.json` and woven into the
+>   guidance the **Add usage rules** button writes, so its connected-accounts line reads
+>   `email (Label)` per account and a fresh AI session maps "my personal email" to the right
+>   account instead of guessing (§4 item 11, §8).
 >
 > Port design (v0.3.4; corrected in v0.4.0; extended in v0.5.0): the interactive **sign-in**
 > uses port **8000** (the only registered redirect URI); **Claude's** background server is
@@ -219,6 +224,14 @@ the faulty writer is upstream.
     seen healthy and **restores it** when it finds one damaged (§9, token guard). This is
     **repair, not prevention**: a corrupt write is still possible, it just stops costing the
     user a re-auth.
+11. **Account labels (v0.8.0)** — each account can carry a short, human-readable **label**
+    ("Personal", "Work", "Assaya", …), edited inline on its card (§8). Labels are stored
+    per-account in `accounts.json` as a `labels` map keyed by email, surfaced on
+    `accounts.listAccounts()`, and set through `accounts.setLabel()` (exposed to the renderer as
+    the `accounts:setLabel` IPC). `guidance.js` reads them when it builds the **Add usage rules**
+    text, rendering each connected account as `email (Label)` — so a fresh AI session learns the
+    label→account mapping and resolves "my personal email" to the right account instead of
+    guessing, rather than picking the wrong account as it did before labels existed.
 
 ## 5. Prerequisites the app must check / guide
 
@@ -398,6 +411,15 @@ dies.
 
 **Verified.** Five accounts with expired tokens in one server process — before: 4 auth
 demands / 4 tabs. After: 0 / 0, and all five accounts read mail.
+
+**Operational note — a running client keeps its old server until a full restart.** This fix (and
+every env change in §6a) lives in the config **on disk**; editing that file cannot change a client
+process that is already running. Claude Desktop and Codex both keep running in the **background**,
+so *closing the window is not enough* — the old server, carrying the old env, stays alive and can
+still throw a sign-in tab even after the fix has shipped. The remedy is always to **fully quit and
+reopen** the client, so it re-reads the config and spawns a fresh server. (This is the process-side
+companion to §6h, which handles the file-side hazard of a still-running client writing its stale
+config back to disk.)
 
 ### d) The no-browser shim (belt and braces)
 
@@ -642,7 +664,8 @@ Dark "control room" aesthetic, amber accent, monospace for status/IDs.
   v0.5.1 that paragraph names **both** clients: it claimed the app was for Claude Desktop
   alone, which stopped being true when Codex shipped in v0.5.0.
 - **Dashboard**: add-account row; a **Check now** button (verifies every account
-  against Google on demand); account cards (email, status dot, live
+  against Google on demand); account cards (email, an inline editable **label** — click
+  **+ label** to add one, or the label to rename it, per §4 item 11 — status dot, live
   "connected ✓ · verified Xm ago" / Testing-mode countdown / "re-auth needed",
   **Re-auth** + **Remove**); a Claude Desktop config strip ("in sync" shows a green
   **✓ Done**, otherwise **Write config**); directly below it the **Codex strip** — the

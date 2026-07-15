@@ -225,6 +225,13 @@ tool. **The one thing you must supply is which account you mean** — the tools 
 `user_google_email`, so name the account in your request. If you only ever mention one
 address, Codex will use that one consistently.
 
+> **Tip: label your accounts so you can name them naturally.** In the tray app you can
+> give each account a short label — "Personal", "Work", and so on. On its own the label
+> is just a note to you, but clicking **Add usage rules…** bakes the label→account
+> mapping into Codex's `AGENTS.md`, so a fresh session knows that "my personal email"
+> means `personal@gmail.com`. After that you can ask for "my work calendar" or "my
+> personal Gmail" and Codex maps it to the right address instead of guessing.
+
 Here are prompts you could type in a Codex session (replace the emails with your own):
 
 1. *"Using MultiMCP, search Gmail in `work@company.com` for unread messages from this

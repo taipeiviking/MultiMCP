@@ -33,9 +33,14 @@ const BEGIN = "<!-- MultiMCP:begin (managed by Google Workspace Manager) -->";
 const END = "<!-- MultiMCP:end -->";
 const MEMORY_SLUG = "multimcp-only-google-services";
 
-function accountEmails() {
+// "email (Label)" for each account, so the agent can map "my personal email" to the
+// right one. This is the whole point of account labels feeding into the guidance.
+function accountList() {
   try {
-    return accounts.listAccounts().map((a) => a.email).filter(Boolean);
+    return accounts
+      .listAccounts()
+      .map((a) => (a.label ? `${a.email} (${a.label})` : a.email))
+      .filter(Boolean);
   } catch {
     return [];
   }
@@ -44,9 +49,9 @@ function accountEmails() {
 // The rules, tailored per client (tool naming differs). Deliberately emphatic:
 // "always and only", plus the account-specific point that was the original bug.
 function guidanceBullets(client) {
-  const emails = accountEmails();
-  const list = emails.length
-    ? emails.join(", ")
+  const list = accountList();
+  const listText = list.length
+    ? list.join(", ")
     : "the accounts added in Google Workspace Manager";
   const tools =
     client === "codex"
@@ -55,7 +60,7 @@ function guidanceBullets(client) {
   return [
     `- In every session, for every task touching **Gmail, Google Calendar, or Google Drive**, use **only** ${tools} (the user's MultiMCP server). This overrides any default or recommendation.`,
     "- **Never** use a built-in, app, plugin, or skill-suggested Gmail/Calendar/Drive integration — even if one is available or recommended — and never fall back to another connector.",
-    `- **Several Google accounts are connected** through MultiMCP, so never assume one. Always pass the specific account (the \`user_google_email\` argument) with every request. Connected accounts: ${list}.`,
+    `- **Several Google accounts are connected** through MultiMCP, so never assume one, and match any label the user names (e.g. "personal", "work") to the account below. Always pass the specific account (the \`user_google_email\` argument) with every request. Connected accounts: ${listText}.`,
     "- If a required MultiMCP capability is unavailable, **stop and tell the user** instead of using anything else.",
   ];
 }

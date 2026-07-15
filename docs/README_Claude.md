@@ -99,6 +99,8 @@ You don't call tools directly — you just ask Claude in plain language, and Cla
 
 Behind the scenes Claude uses tools such as `search_gmail_messages`, `list_gmail_labels`, `get_gmail_message_content`, `search_drive_files`, `get_drive_file_content`, `list_calendars`, and `get_events`. You never type those names — Claude selects them from your request. If you leave out the account and Claude asks which one, just tell it the email.
 
+> **Tip: label your accounts so you can skip the email.** Each account card has a short, editable **label** — click **+ label** on the account row, type something like *Personal* or *Work*, and press **Enter**. On its own the label is just a note to you; clicking **Add usage rules…** is what folds the label→account mapping into the guidance Claude sees (the connected-accounts line then reads like *"clas.sivertsen@gmail.com (Personal), clas@liquacool.com (Work)"*). After that you can say *"check my personal email"* instead of typing the full address, and Claude maps it to the right account.
+
 > **The first call may be slow.** The very first time Claude uses MultiMCP after a restart, it can take a little while as `uvx` warms up and provisions the server in the background. That's expected, not a hang — later calls are fast. (Keeping the tray app open helps here: it pre-warms the engine so this happens off Claude's critical path.)
 
 ---

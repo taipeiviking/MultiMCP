@@ -121,7 +121,21 @@ input:focus { outline: none; border-color: var(--amber-dim); }
   padding: 14px 16px;
 }
 .account-card__main { display: flex; align-items: center; gap: 12px; }
-.account-card__email { font-family: var(--mono); font-size: 14px; }
+.account-card__email { font-family: var(--mono); font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* A short user label ("Personal", "Work") the AI uses to resolve which account. */
+.account-label {
+  font-family: inherit; font-size: 11px; line-height: 1;
+  padding: 3px 8px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--amber); color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
+.account-label:hover { background: color-mix(in srgb, var(--amber) 22%, transparent); }
+.account-label--add { border-style: dashed; border-color: var(--line); color: var(--muted); background: transparent; }
+.account-label-input {
+  font-family: inherit; font-size: 12px; width: 130px;
+  padding: 3px 8px; border-radius: 6px;
+  border: 1px solid var(--amber); background: var(--panel-2); color: var(--text);
+}
 .account-card__meta { font-size: 12px; margin-top: 2px; }
 .account-card__actions { display: flex; gap: 8px; }
 .account-card__msg { margin-top: 6px; max-width: 52ch; }

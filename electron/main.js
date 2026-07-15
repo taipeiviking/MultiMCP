@@ -785,6 +785,7 @@ function registerIpc() {
   handle("accounts:list", () => accounts.listAccounts());
   handle("accounts:add", ({ email }) => accounts.addAccount(email));
   handle("accounts:remove", ({ email }) => accounts.removeAccount(email));
+  handle("accounts:setLabel", ({ email, label }) => accounts.setLabel(email, label));
   handle("accounts:authorize", async ({ email }) => {
     const r = await serverManager.authorizeAccount(email);
     // Confirm the just-issued token actually works (and refresh stored status).

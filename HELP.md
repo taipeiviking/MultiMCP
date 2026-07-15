@@ -20,6 +20,7 @@ the config files those clients read.
 - [Prerequisites](#prerequisites)
 - [Google Cloud setup](#google-cloud-setup)
 - [Adding & signing in an account](#adding--signing-in-an-account)
+- [Account labels ("Personal" / "Work")](#account-labels)
 - [Writing the Claude Desktop config](#writing-the-claude-desktop-config)
 - [Using it from OpenAI Codex](#codex)
 - [The ~7-day re-auth and notifications](#the-7-day-re-auth)
@@ -152,6 +153,29 @@ In the [Google Cloud Console](https://console.cloud.google.com/):
 **Re-auth** repeats this for an existing account (the routine fix when a token
 ages out). **Remove** forgets the account in the app (it does **not** delete the
 cached token file).
+
+---
+
+<a id="account-labels"></a>
+## Account labels ("Personal" / "Work")
+
+**New in v0.8.0.** Each account card carries a short, editable **label** — something
+like *Personal*, *Work*, or *Assaya*. To set one, click **"+ label"** on the account
+row (or click an existing label to change it), type the name, and press **Enter**. It's
+saved per-account and shown on that card from then on.
+
+Labels exist so the **AI can pick the right account from a plain-English request**. Ask
+"check my personal email," and a session that knows *Personal* means
+`clas.sivertsen@gmail.com` sends the request to that account instead of guessing.
+Before labels, it sometimes chose the wrong one — reaching for a work account when you
+meant your personal Gmail.
+
+That mapping travels with the usage rules. When you click **"Add usage rules…"** — the
+button that writes the guidance into `AGENTS.md` / `CLAUDE.md` (and the copy-text for
+Claude Desktop) — the connected-accounts line now carries each label alongside its
+address, e.g. *"Connected accounts: clas.sivertsen@gmail.com (Personal),
+clas@liquacool.com (Work), …"*. So a brand-new chat session learns the
+label→account mapping too, without you spelling it out each time.
 
 ---
 
@@ -537,9 +561,14 @@ two; once it's [published to production](#long-lived), they keep working.)
 
 **Claude opens Google sign-in tabs saying "Access blocked" / "Error 400: redirect_uri_mismatch"**
 — this was a bug, and it is **fixed in v0.4.0**. Update to the latest release, then
-**fully quit and reopen Claude Desktop** — the fix lives in the connector entry that
-the app rewrites on launch, and a Claude that is still running will keep using the
-old one until it is properly restarted (tray → Quit, not just closing the window).
+**fully quit and reopen Claude Desktop**. The fix lives in the connector entry on disk
+that the app rewrites on launch, but a client that was **already running keeps its old
+server** and will not pick up the corrected entry until it is fully restarted. **Closing
+the window is not enough** — the desktop apps keep running in the background, so use
+**tray → Quit** (Claude) and then reopen it. **A lingering old instance is the usual
+reason a sign-in tab still appears after you've updated**: the fix shipped, but the
+still-running client is serving the pre-fix version. The same applies to Codex — fully
+quit and reopen it too.
 
 What you were seeing: as soon as a single Claude conversation touched a **second**
 account, a browser tab opened for it — one tab per extra account — each landing on

@@ -199,6 +199,10 @@ export may need a re-auth or two.)
 - Stores your **one** Google OAuth Client ID/Secret securely (Windows Credential
   Manager). The same client is shared by all accounts — it is not per-account.
 - Adds your accounts and runs a one-click **system-browser** sign-in for each.
+- Lets you give each account a short, editable **label** ("Personal", "Work", …) so
+  when you ask the AI to "check my personal email" it maps the request to the right
+  account instead of guessing. The labels are folded into the usage rules the app
+  writes, so a fresh AI session learns the label → account mapping too.
 - Shows per-account status **verified live against Google** — a real token refresh on
   launch, every 6h, and via a **Check now** button — so it reflects reality, not a
   fixed clock. Shows "connected ✓ · verified Xm ago" when healthy and "re-auth needed"

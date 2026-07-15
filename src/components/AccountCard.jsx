@@ -40,7 +40,17 @@ function expiryLabel(account) {
 export default function AccountCard({ account, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { kind: "info"|"error", text, url? }
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState(account.label || "");
   const status = account.expired ? "expired" : account.connected ? "ok" : "off";
+
+  async function saveLabel() {
+    setEditingLabel(false);
+    const next = labelDraft.trim();
+    if (next === (account.label || "")) return; // no change
+    await api.accounts.setLabel(account.email, next);
+    onChanged();
+  }
 
   async function reauth() {
     setBusy(true);
@@ -72,7 +82,43 @@ export default function AccountCard({ account, onChanged }) {
       <div className="account-card__main">
         <span className={`status-dot status-dot--${status}`} />
         <div>
-          <div className="account-card__email">{account.email}</div>
+          <div className="account-card__email">
+            {account.email}
+            {editingLabel ? (
+              <input
+                className="account-label-input"
+                value={labelDraft}
+                autoFocus
+                maxLength={40}
+                placeholder="e.g. Personal, Work…"
+                onChange={(e) => setLabelDraft(e.target.value)}
+                onBlur={saveLabel}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveLabel();
+                  if (e.key === "Escape") {
+                    setLabelDraft(account.label || "");
+                    setEditingLabel(false);
+                  }
+                }}
+              />
+            ) : account.label ? (
+              <button
+                className="account-label"
+                title="Rename this label — the AI uses it to know which account you mean"
+                onClick={() => { setLabelDraft(account.label); setEditingLabel(true); }}
+              >
+                {account.label}
+              </button>
+            ) : (
+              <button
+                className="account-label account-label--add"
+                title="Add a label like Personal or Work so the AI knows which account you mean"
+                onClick={() => { setLabelDraft(""); setEditingLabel(true); }}
+              >
+                + label
+              </button>
+            )}
+          </div>
           <div className="account-card__meta muted">{expiryLabel(account)}</div>
           {msg && (
             <div className={`account-card__msg ${msg.kind === "error" ? "error" : "muted small"}`}>

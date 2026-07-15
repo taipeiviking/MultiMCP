@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("api", {
     list: () => ipcRenderer.invoke("accounts:list"),
     add: (email) => ipcRenderer.invoke("accounts:add", { email }),
     remove: (email) => ipcRenderer.invoke("accounts:remove", { email }),
+    setLabel: (email, label) => ipcRenderer.invoke("accounts:setLabel", { email, label }),
     authorize: (email) => ipcRenderer.invoke("accounts:authorize", { email }),
     verify: () => ipcRenderer.invoke("accounts:verify"),
   },

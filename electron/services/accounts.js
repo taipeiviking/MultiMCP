@@ -376,7 +376,27 @@ function listAccounts() {
   } catch {
     /* defaults */
   }
-  return reg.emails.map((email) => ({ email, ...readTokenStatus(email, reg, settings) }));
+  const labels = reg.labels || {};
+  return reg.emails.map((email) => ({
+    email,
+    label: labels[email] || "",
+    ...readTokenStatus(email, reg, settings),
+  }));
+}
+
+// A short user-assigned label for an account ("Personal", "Work", "Assaya"…). It's
+// what lets the AI map "my personal email" to the right account, and it's woven into
+// the usage-rules guidance so a fresh session knows the mapping too.
+function setLabel(email, label) {
+  const reg = readRegistry();
+  email = (email || "").trim().toLowerCase();
+  if (!reg.emails.includes(email)) return { ok: false, error: "Unknown account." };
+  reg.labels = reg.labels || {};
+  const clean = (label || "").trim().slice(0, 40);
+  if (clean) reg.labels[email] = clean;
+  else delete reg.labels[email];
+  writeRegistry(reg);
+  return { ok: true, label: clean };
 }
 
 function addAccount(email) {
@@ -401,6 +421,7 @@ module.exports = {
   listAccounts,
   addAccount,
   removeAccount,
+  setLabel,
   readTokenStatus,
   recordAuthorized,
   verifyAccount,

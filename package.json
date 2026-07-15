@@ -1,6 +1,6 @@
 {
   "name": "google-workspace-manager",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Local control panel to connect multiple Google Workspace accounts to Claude Desktop via workspace-mcp.",
   "author": "",
   "license": "MIT",
