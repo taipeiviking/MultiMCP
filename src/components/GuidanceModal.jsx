@@ -26,10 +26,11 @@ export default function GuidanceModal({ client, status, busy, onApply, onClose }
           </p>
 
           {(status?.targets || []).map((t) =>
-            t.kind === "file" ? (
-              <FileTarget key={t.key} target={t} busy={busy} onApply={() => onApply(t.key)} />
-            ) : (
+            t.kind === "copy" ? (
               <CopyTarget key={t.key} target={t} />
+            ) : (
+              // "file" and "codexNote" are both writable, diffable targets.
+              <FileTarget key={t.key} target={t} busy={busy} onApply={() => onApply(t.key)} />
             )
           )}
         </div>

@@ -4,6 +4,20 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.7.1 — 2026-07-15
+*Make the Codex usage rules actually stick.*
+
+### Changed
+- The **ChatGPT Codex** usage rules now also write a note into Codex's **durable memory**
+  (`~/.codex/memories/…/notes`), not just `AGENTS.md`. In practice `AGENTS.md` alone wasn't always
+  enough — a fresh Codex task could still fall back to its built-in single-account Gmail — and the
+  memory note is what makes a new session comply. (Codex's own memory system treats these notes as
+  authoritative.) The button now shows both targets, detects an existing note so it never
+  duplicates, and only offers the memory note when Codex's memory store exists.
+- The rule wording is stronger and now covers skill-recommended integrations too ("even if one is
+  available or recommended"), while keeping the point that several accounts are connected and the
+  agent must always name the account.
+
 ## v0.7.0 — 2026-07-15
 *Teach the AI to actually use MultiMCP — not its built-in single-account Gmail.*
 
