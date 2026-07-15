@@ -4,6 +4,15 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.6.0 — 2026-07-15
+*A "how to use it here" guide on each connector card.*
+
+### Added
+- Each config card now has a **"How to use in …" link** that opens a step-by-step guide on GitHub
+  for that specific client — [Claude Desktop](docs/README_Claude.md) and
+  [ChatGPT Codex](docs/README_ChatGPT.md). Each guide covers install, configuration, restarting the
+  client, example prompts you can type in a chat, how to verify it works, and troubleshooting.
+
 ## v0.5.2 — 2026-07-15
 *Naming.*
 

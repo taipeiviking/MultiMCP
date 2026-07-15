@@ -38,6 +38,13 @@ const log = require("./services/logger");
 const isDev = !app.isPackaged;
 const APP_ID = "com.local.googleworkspacemanager";
 const HELP_URL = "https://github.com/taipeiviking/MultiMCP/blob/main/HELP.md";
+// Per-client usage guides, opened from the two config cards. Keyed, not free-form:
+// the renderer sends a KEY, never a URL, so nothing it receives can redirect this
+// to an arbitrary destination.
+const DOC_URLS = {
+  claude: "https://github.com/taipeiviking/MultiMCP/blob/main/docs/README_Claude.md",
+  chatgpt: "https://github.com/taipeiviking/MultiMCP/blob/main/docs/README_ChatGPT.md",
+};
 const EXPIRY_WARN_MS = 48 * 3600 * 1000; // warn when re-auth is due within 48h
 const EXPIRY_CHECK_INTERVAL_MS = 6 * 3600 * 1000; // re-check every 6h
 
@@ -886,6 +893,15 @@ function registerIpc() {
   handle("help:open", () => {
     shell.openExternal(HELP_URL);
     return { ok: true, url: HELP_URL };
+  });
+
+  // Open a per-client usage guide on GitHub. Only known keys resolve to a URL; an
+  // unknown key is ignored rather than opening anything.
+  handle("docs:open", ({ key } = {}) => {
+    const url = DOC_URLS[key];
+    if (!url) return { ok: false, error: `unknown doc key: ${key}` };
+    shell.openExternal(url);
+    return { ok: true, url };
   });
 
   // settings backup: export to a JSON file (carries Client ID+secret, accounts,

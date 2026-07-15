@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld("api", {
   },
   help: {
     open: () => ipcRenderer.invoke("help:open"),
+    openDoc: (key) => ipcRenderer.invoke("docs:open", { key }),
   },
   backup: {
     export: () => ipcRenderer.invoke("backup:export"),

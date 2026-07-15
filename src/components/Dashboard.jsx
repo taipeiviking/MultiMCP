@@ -289,7 +289,20 @@ function ClaudeStrip({ claude, busy, onWrite }) {
       : "Claude Desktop config not written yet";
   return (
     <div className={`claude-strip claude-strip--${state}`}>
-      <span>{label}</span>
+      <span className="strip-label">
+        {label}
+        <a
+          className="strip-guide"
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            api.help?.openDoc("claude");
+          }}
+          title="Open the step-by-step guide for using MultiMCP in Claude Desktop"
+        >
+          How to use in Claude&nbsp;Desktop →
+        </a>
+      </span>
       <button
         className={`btn btn--small ${state === "ok" ? "btn--done" : ""}`}
         onClick={onWrite}
@@ -337,7 +350,20 @@ function CodexStrip({ codex, busy, err, onWrite }) {
   return (
     <>
       <div className={`claude-strip claude-strip--${state}`}>
-        <span>{label}</span>
+        <span className="strip-label">
+          {label}
+          <a
+            className="strip-guide"
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              api.help?.openDoc("chatgpt");
+            }}
+            title="Open the step-by-step guide for using MultiMCP in ChatGPT Codex"
+          >
+            How to use in ChatGPT&nbsp;Codex →
+          </a>
+        </span>
         <button
           className={`btn btn--small ${state === "ok" ? "btn--done" : ""}`}
           onClick={onWrite}
