@@ -132,11 +132,18 @@ you use it), which is why no account has to be signed in again.
 
 ---
 
-## Step 4 — Restart Codex
+## Step 4 — Restart Codex (fully — this is the step people miss)
 
-Codex reads its config at startup, so **fully restart it** after writing the config —
-quit and reopen the CLI, the IDE extension, or the ChatGPT desktop app, whichever you
-use.
+Codex only reads its config **at startup**, so a newly-written server won't appear until
+you restart. For the CLI and IDE extension, just start a new session.
+
+For the **ChatGPT desktop app**, "restart" means a **full quit, not just closing the
+window** — the app keeps running in the background, and a still-running app never
+re-reads the config. Quit it completely (right-click the taskbar/tray icon → **Quit**,
+or **File → Quit** / `Ctrl+Q`), make sure no ChatGPT/Codex process is left running, then
+reopen it. After a proper restart, MultiMCP shows up in the next step. (If it still
+doesn't appear, the app didn't fully quit — end any lingering `ChatGPT`/`codex` processes
+in Task Manager and reopen.)
 
 ---
 
@@ -146,11 +153,17 @@ use.
 
 The fastest confirmation needs no terminal. Start a Codex session (in the desktop app,
 the CLI, or the IDE extension) and type **`/mcp`** in the composer. Codex lists the MCP
-servers it has connected — **`MultiMCP`** should be among them. (The same command works
-in the Codex CLI's terminal UI.) If it's there and its tools are listed, you're done.
+servers it has connected — **`MultiMCP`** should be among them, marked **Enabled**. (The
+same command works in the Codex CLI's terminal UI.) It shows next to Codex's own built-in
+entries like `codex_apps` and `node_repl`; it says *"Auth unsupported"*, which is normal —
+MultiMCP handles its own Google sign-in through the tray app, so Codex has nothing to
+authenticate. If it's there, you're done.
 
-If `MultiMCP` is *missing* from `/mcp`, it's almost always because Codex hasn't been
-restarted since you wrote the config — fully quit and reopen it, then check again.
+If `MultiMCP` is **missing** from `/mcp`, it is almost always because the app wasn't
+**fully quit** since you wrote the config (see Step 4) — the desktop app only builds this
+list at a real startup, and closing the window doesn't count. Quit it completely, make
+sure no `ChatGPT`/`codex` process is still running, reopen, and check again. A restart is
+genuinely all it takes.
 
 ### The thorough check: `codex mcp get`
 
