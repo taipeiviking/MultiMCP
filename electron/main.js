@@ -32,6 +32,7 @@ const claudeConfig = require("./services/claudeConfig");
 const codexConfig = require("./services/codexConfig");
 const noBrowser = require("./services/noBrowser");
 const tokenGuard = require("./services/tokenGuard");
+const guidance = require("./services/guidance");
 const backup = require("./services/backup");
 const log = require("./services/logger");
 
@@ -827,6 +828,11 @@ function registerIpc() {
   // claude config
   handle("claude:status", () => claudeConfig.getStatus());
   handle("claude:write", () => claudeConfig.writeServerEntry());
+
+  // Agent guidance: the rules that tell a client's AI to use MultiMCP (and specify
+  // an account) instead of a built-in single-account integration.
+  handle("guidance:status", ({ client }) => guidance.getStatus(client));
+  handle("guidance:apply", ({ client, targetKey }) => guidance.apply(client, targetKey));
 
   handle("codex:status", () => codexConfig.getStatus());
   // Return the failure instead of throwing: writing this one edits a TOML file the

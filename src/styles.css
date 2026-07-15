@@ -153,6 +153,27 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 .strip-label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .strip-guide { font-size: 12px; color: var(--muted); text-decoration: none; width: fit-content; }
 .strip-guide:hover { color: var(--amber); text-decoration: underline; }
+/* Right-hand button group: the config Done button, then the usage-rules button. */
+.strip-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* Guidance diff modal */
+.guide-modal { max-width: 720px; width: 92%; }
+.guide-modal__body { padding: 14px 16px; overflow-y: auto; }
+.guide-target { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 12px; }
+.guide-target:first-child { margin-top: 8px; }
+.guide-target__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.guide-target__title { font-weight: 600; font-size: 13.5px; word-break: break-all; }
+.guide-diff {
+  margin: 10px 0 0; padding: 10px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  overflow-x: auto; max-height: 260px; overflow-y: auto;
+}
+.guide-diff--plain { color: var(--text); }
+.guide-diff__line { display: flex; gap: 8px; }
+.guide-diff__sign { user-select: none; opacity: .8; width: 1ch; flex: none; text-align: center; }
+.guide-diff__line--add { background: rgba(63,185,80,.12); color: #7ee787; }
+.guide-diff__line--del { background: rgba(248,81,73,.12); color: #ff9d96; }
 
 /* Chips */
 .chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-family: var(--mono); }

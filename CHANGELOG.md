@@ -4,6 +4,24 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.7.0 — 2026-07-15
+*Teach the AI to actually use MultiMCP — not its built-in single-account Gmail.*
+
+### Added
+- **"Add usage rules…" button on each card.** A connector alone isn't enough: a client that also
+  has a built-in Gmail/Drive/Calendar integration will often reach for *that* instead — and only for
+  the one account it was set up with. This button adds a short standing instruction telling the AI to
+  use **only MultiMCP** for Google Workspace, and to **always specify which of your connected
+  accounts** to act on.
+- It opens a **diff-style preview** of exactly what will be added, and **checks whether the guidance
+  is already there** — if so, it doesn't duplicate it and marks the step done. (Rules you wrote
+  yourself, like an existing `AGENTS.md`, are recognised too.)
+- Targets per client:
+  - **ChatGPT Codex** → `~/.codex/AGENTS.md` (the file Codex reads as rules).
+  - **Claude** → `~/.claude/CLAUDE.md` (Claude Code's memory file) as a diff, **and** a copy box for
+    **Claude Desktop → Settings → custom instructions**, since Claude Desktop has no rules file.
+- The **Done** button moved left; the new **usage-rules** button sits to its right.
+
 ## v0.6.0 — 2026-07-15
 *A "how to use it here" guide on each connector card.*
 

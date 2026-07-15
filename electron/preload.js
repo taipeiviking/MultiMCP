@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld("api", {
     status: () => ipcRenderer.invoke("codex:status"),
     write: () => ipcRenderer.invoke("codex:write"),
   },
+  guidance: {
+    status: (client) => ipcRenderer.invoke("guidance:status", { client }),
+    apply: (client, targetKey) => ipcRenderer.invoke("guidance:apply", { client, targetKey }),
+  },
   server: {
     test: () => ipcRenderer.invoke("server:test"),
   },

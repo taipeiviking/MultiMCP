@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import AccountCard from "./AccountCard.jsx";
 import ImportSettings from "./ImportSettings.jsx";
+import GuidanceModal from "./GuidanceModal.jsx";
 
 const api = window.api;
 
@@ -9,6 +10,9 @@ export default function Dashboard({ creds, onChangeCreds }) {
   const [claude, setClaude] = useState(null);
   const [codex, setCodex] = useState(null);
   const [codexErr, setCodexErr] = useState("");
+  const [guidance, setGuidance] = useState({ claude: null, codex: null });
+  const [guideModal, setGuideModal] = useState(null); // 'claude' | 'codex' | null
+  const [guideBusy, setGuideBusy] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [dbg, setDbg] = useState(null);
@@ -25,15 +29,25 @@ export default function Dashboard({ creds, onChangeCreds }) {
   }
 
   const refresh = useCallback(async () => {
-    const [a, c, x] = await Promise.all([
+    const [a, c, x, gc, gx] = await Promise.all([
       api.accounts.list(),
       api.claude.status(),
       api.codex?.status().catch(() => null),
+      api.guidance?.status("claude").catch(() => null),
+      api.guidance?.status("codex").catch(() => null),
     ]);
     setAccounts(a);
     setClaude(c);
     setCodex(x);
+    setGuidance({ claude: gc, codex: gx });
   }, []);
+
+  async function applyGuidance(client, targetKey) {
+    setGuideBusy(true);
+    await api.guidance.apply(client, targetKey);
+    await refresh();
+    setGuideBusy(false);
+  }
 
   useEffect(() => {
     api.debug?.get().then(setDbg).catch(() => {});
@@ -160,8 +174,21 @@ export default function Dashboard({ creds, onChangeCreds }) {
         ))}
       </div>
 
-      <ClaudeStrip claude={claude} busy={busy} onWrite={writeClaude} />
-      <CodexStrip codex={codex} busy={busy} err={codexErr} onWrite={writeCodex} />
+      <ClaudeStrip
+        claude={claude}
+        guidance={guidance.claude}
+        busy={busy}
+        onWrite={writeClaude}
+        onGuide={() => setGuideModal("claude")}
+      />
+      <CodexStrip
+        codex={codex}
+        guidance={guidance.codex}
+        busy={busy}
+        err={codexErr}
+        onWrite={writeCodex}
+        onGuide={() => setGuideModal("codex")}
+      />
 
       {prefs?.productionMode ? (
         <p className="muted small note">
@@ -227,6 +254,16 @@ export default function Dashboard({ creds, onChangeCreds }) {
         />
       )}
 
+      {guideModal && guidance[guideModal] && (
+        <GuidanceModal
+          client={guideModal}
+          status={guidance[guideModal]}
+          busy={guideBusy}
+          onApply={(targetKey) => applyGuidance(guideModal, targetKey)}
+          onClose={() => setGuideModal(null)}
+        />
+      )}
+
       <div className="diag muted small">
         <span>
           Google OAuth client — one Client ID &amp; Secret shared by all accounts.
@@ -278,7 +315,23 @@ function LogViewer({ text, path, onRefresh, onClose }) {
   );
 }
 
-function ClaudeStrip({ claude, busy, onWrite }) {
+// The second button on each card teaches that client's AI to actually use MultiMCP
+// (and to pick the right account) instead of a built-in single-account integration.
+function GuideButton({ guidance, onGuide }) {
+  if (!guidance) return null;
+  const done = !!guidance.done;
+  return (
+    <button
+      className={`btn btn--small ${done ? "btn--done" : ""}`}
+      onClick={onGuide}
+      title="Add a rule so the AI uses MultiMCP for Gmail/Drive/Calendar and always specifies the account"
+    >
+      {done ? "✓ Usage rules" : "Add usage rules…"}
+    </button>
+  );
+}
+
+function ClaudeStrip({ claude, guidance, busy, onWrite, onGuide }) {
   if (!claude) return null;
   const state = claude.inSync ? "ok" : claude.present ? "stale" : "missing";
   const label =
@@ -303,13 +356,16 @@ function ClaudeStrip({ claude, busy, onWrite }) {
           How to use in Claude&nbsp;Desktop →
         </a>
       </span>
-      <button
-        className={`btn btn--small ${state === "ok" ? "btn--done" : ""}`}
-        onClick={onWrite}
-        disabled={busy || state === "ok"}
-      >
-        {busy ? "Writing…" : state === "ok" ? "✓ Done" : "Write config"}
-      </button>
+      <div className="strip-actions">
+        <button
+          className={`btn btn--small ${state === "ok" ? "btn--done" : ""}`}
+          onClick={onWrite}
+          disabled={busy || state === "ok"}
+        >
+          {busy ? "Writing…" : state === "ok" ? "✓ Done" : "Write config"}
+        </button>
+        <GuideButton guidance={guidance} onGuide={onGuide} />
+      </div>
     </div>
   );
 }
@@ -321,7 +377,7 @@ function ClaudeStrip({ claude, busy, onWrite }) {
 // If Codex isn't installed we still show the row, but as a quiet explanation rather
 // than a dead button: most people have never heard of Codex, and a greyed-out control
 // with no reason attached just looks broken.
-function CodexStrip({ codex, busy, err, onWrite }) {
+function CodexStrip({ codex, guidance, busy, err, onWrite, onGuide }) {
   if (!codex) return null;
 
   if (!codex.installed) {
@@ -364,13 +420,16 @@ function CodexStrip({ codex, busy, err, onWrite }) {
             How to use in ChatGPT&nbsp;Codex →
           </a>
         </span>
-        <button
-          className={`btn btn--small ${state === "ok" ? "btn--done" : ""}`}
-          onClick={onWrite}
-          disabled={busy || state === "ok" || !!codex.error}
-        >
-          {busy ? "Writing…" : state === "ok" ? "✓ Done" : "Write ChatGPT Codex config"}
-        </button>
+        <div className="strip-actions">
+          <button
+            className={`btn btn--small ${state === "ok" ? "btn--done" : ""}`}
+            onClick={onWrite}
+            disabled={busy || state === "ok" || !!codex.error}
+          >
+            {busy ? "Writing…" : state === "ok" ? "✓ Done" : "Write ChatGPT Codex config"}
+          </button>
+          <GuideButton guidance={guidance} onGuide={onGuide} />
+        </div>
       </div>
       {err && <div className="error">{err}</div>}
     </>
