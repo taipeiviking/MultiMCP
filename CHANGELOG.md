@@ -4,6 +4,26 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.8.1 — 2026-07-15
+*ChatGPT Codex: clean up the old connector so it can't reopen sign-in tabs.*
+
+### Fixed
+- **The ChatGPT Codex config now drops the old `google_workspace` entry when it writes the new
+  `MultiMCP` one.** On a machine whose `~/.codex/config.toml` still had the pre-rename
+  `[mcp_servers.google_workspace]` block (written by an older build), Codex kept spawning **both**
+  Workspace servers — and the old one lacked the OAuth-tab fix (`MCP_SINGLE_USER_MODE` + the no-op
+  `BROWSER` shim), so it still threw a Google sign-in tab on the second account in a session. The
+  Codex service now strips the legacy entry on write, reports it as "not in sync" while one lingers,
+  and **auto-migrates it on launch** — the exact cleanup the Claude Desktop side already did. (The
+  Codex CLI was always detected correctly at `%LOCALAPPDATA%\OpenAI\Codex\bin`; detection was never
+  the problem.) Your other Codex servers (e.g. `node_repl`) and all non-MCP settings are preserved
+  untouched, with a timestamped `config.toml` backup.
+
+### Internal
+- New `tomlEdit.removeTable()` primitive (structural, comment-safe table removal) with adversarial
+  tests; the legacy drop is a separately-validated edit because `validateEdit` forbids any sibling
+  under `mcp_servers` from changing during the `MultiMCP` upsert.
+
 ## v0.8.0 — 2026-07-15
 *Label your accounts ("Personal", "Work") so the AI picks the right one.*
 
