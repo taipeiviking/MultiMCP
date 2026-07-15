@@ -21,6 +21,52 @@ const log = require("./logger");
 const SERVER_KEY = "MultiMCP";
 const TABLE_PATH = ["mcp_servers", SERVER_KEY]; // note: Codex uses mcp_servers (underscore)
 
+// The old connector name. A config.toml that still has [mcp_servers.google_workspace]
+// was written by an older build of ours. Left in place, Codex spawns BOTH servers,
+// and the legacy one lacks MCP_SINGLE_USER_MODE + BROWSER -- so it still throws an
+// OAuth tab per account, the exact bug the rename fixed. writeServerEntry() strips
+// these before writing ours; getStatus() reports "not in sync" while one survives;
+// healServerEntryIfStale() migrates one on launch. Mirrors claudeConfig's handling
+// -- the two services stayed parallel except this cleanup was only ever added there.
+const LEGACY_SERVER_KEYS = ["google_workspace"];
+
+function findLegacyKeys(parsed) {
+  const servers = (parsed && parsed.mcp_servers) || {};
+  return LEGACY_SERVER_KEYS.filter((k) => Object.prototype.hasOwnProperty.call(servers, k));
+}
+
+// Assert a legacy-key removal deleted exactly that one mcp_servers entry and left
+// everything else identical. Independent of tomlEdit's editor internals, in the same
+// spirit as tomlEdit.validateEdit: prove the edit did only what we intended before it
+// may reach the disk. Returns a list of problems; empty means safe.
+function validateRemoval(before, after, removedKey) {
+  const problems = [];
+  for (const k of Object.keys(before)) {
+    if (k === "mcp_servers") continue;
+    if (!tomlEdit.deepEqual(before[k], after[k])) problems.push(`top-level "${k}" changed or was lost`);
+  }
+  for (const k of Object.keys(after)) {
+    if (k !== "mcp_servers" && !Object.prototype.hasOwnProperty.call(before, k)) {
+      problems.push(`top-level "${k}" appeared unexpectedly`);
+    }
+  }
+  const beforeServers = before.mcp_servers || {};
+  const afterServers = after.mcp_servers || {};
+  if (Object.prototype.hasOwnProperty.call(afterServers, removedKey)) {
+    problems.push(`"${removedKey}" is still present after removal`);
+  }
+  for (const k of Object.keys(beforeServers)) {
+    if (k === removedKey) continue;
+    if (!tomlEdit.deepEqual(beforeServers[k], afterServers[k])) problems.push(`mcp_servers."${k}" changed or was lost`);
+  }
+  for (const k of Object.keys(afterServers)) {
+    if (!Object.prototype.hasOwnProperty.call(beforeServers, k)) {
+      problems.push(`mcp_servers."${k}" appeared unexpectedly`);
+    }
+  }
+  return problems;
+}
+
 // Codex gets its OWN port, distinct from BOTH the tray app's interactive sign-in
 // port (serverManager.SIGNIN_PORT = 8000) and Claude Desktop's background server
 // (claudeConfig CLAUDE_MCP_PORT = 9000).
@@ -136,11 +182,35 @@ async function writeServerEntry() {
     );
   }
 
+  // 0. Strip any legacy connector entry (old "google_workspace" name) BEFORE upserting
+  //    ours. It cannot be co-removed in the upsertTable call: validateEdit forbids any
+  //    sibling under mcp_servers from changing during our write, and would reject it.
+  //    Remove each as its own validated edit, then re-baseline the parse so the final
+  //    validation compares against the cleaned file rather than the original.
+  let workingRaw = raw;
+  let oldParsedClean = oldParsed;
+  for (const lk of findLegacyKeys(oldParsedClean)) {
+    const r = tomlEdit.removeTable(workingRaw, ["mcp_servers", lk]);
+    if (!r.removed) continue;
+    const after = tomlEdit.parseOrNull(r.text);
+    if (after === null) {
+      throw new Error(`Refusing to write ${p}: removing legacy "${lk}" produced invalid TOML`);
+    }
+    const rmProblems = validateRemoval(oldParsedClean, after, lk);
+    if (rmProblems.length) {
+      log.error("codexConfig", "refusing to write: legacy removal changed too much", { path: p, key: lk, problems: rmProblems });
+      throw new Error(`Refusing to write ${p}: removing legacy "${lk}" changed more than expected (${rmProblems.join("; ")})`);
+    }
+    log.info("codexConfig", "Removed legacy connector", { key: lk });
+    workingRaw = r.text;
+    oldParsedClean = after;
+  }
+
   const { scalars, env, expected } = await buildEntry();
 
   // 1. Build the new text in memory. Throws TomlRefusal on a shape we cannot
   //    edit safely (root inline mcp_servers table).
-  const edit = tomlEdit.upsertTable(raw, {
+  const edit = tomlEdit.upsertTable(workingRaw, {
     path: TABLE_PATH,
     scalars,
     subTables: { env },
@@ -149,7 +219,7 @@ async function writeServerEntry() {
 
   // 2. Validate BEFORE anything touches the disk. The happy path never needs the
   //    backup at all -- a bad edit is caught while the real file is still intact.
-  const problems = tomlEdit.validateEdit(oldParsed, edit.text, TABLE_PATH, expected);
+  const problems = tomlEdit.validateEdit(oldParsedClean, edit.text, TABLE_PATH, expected);
   if (problems.length) {
     log.error("codexConfig", "refusing to write: validation failed", { path: p, problems });
     throw new Error(`Refusing to write ${p}: ${problems.join("; ")}`);
@@ -179,7 +249,7 @@ async function writeServerEntry() {
   // 5. Re-read from DISK and validate again. Step 2 proved the string was good;
   //    this proves the bytes that actually landed are good (encoding, truncation,
   //    an AV product rewriting the file). Only here can a rollback be needed.
-  const problemsOnDisk = tomlEdit.validateEdit(oldParsed, fs.readFileSync(p, "utf8"), TABLE_PATH, expected);
+  const problemsOnDisk = tomlEdit.validateEdit(oldParsedClean, fs.readFileSync(p, "utf8"), TABLE_PATH, expected);
   if (problemsOnDisk.length) {
     if (backup) fs.copyFileSync(backup, p);
     else fs.unlinkSync(p); // we created it; leave the machine as we found it
@@ -217,7 +287,7 @@ async function writeServerEntry() {
     envKeys: Object.keys(env),
     secretInjected: Object.prototype.hasOwnProperty.call(env, "GOOGLE_OAUTH_CLIENT_SECRET"),
     browserSuppressed: !!env.BROWSER,
-    preservedServers: Object.keys(oldParsed.mcp_servers || {}).filter((k) => k !== SERVER_KEY),
+    preservedServers: Object.keys(oldParsedClean.mcp_servers || {}).filter((k) => k !== SERVER_KEY),
   });
 
   return { ok: true, path: p, note: "Restart Codex to load changes." };
@@ -298,13 +368,17 @@ async function getStatus() {
 
   const existing = parsed.mcp_servers && parsed.mcp_servers[SERVER_KEY];
   const { expected } = await buildEntry();
+  const legacyKey = findLegacyKeys(parsed)[0] || null;
   return {
     // If our entry is already in there, treat Codex as installed no matter what
     // detection thinks - never grey out a section that has live state in it.
     installed: installed || !!existing,
     exe,
     present: !!existing,
-    inSync: entryMatches(existing, expected),
+    // A leftover google_workspace entry means "not in sync" even if ours looks right:
+    // Codex would spawn BOTH servers and the old one still opens OAuth tabs.
+    inSync: !legacyKey && entryMatches(existing, expected),
+    legacyKey,
     path: p,
   };
 }
@@ -319,6 +393,20 @@ async function healServerEntryIfStale() {
     if (parsed === null) return { healed: false, reason: "config.toml is not valid TOML" };
 
     const existing = parsed.mcp_servers && parsed.mcp_servers[SERVER_KEY];
+    const legacyKey = findLegacyKeys(parsed)[0] || null;
+
+    // An entry under the OLD name is ours from an earlier build: migrate it
+    // (writeServerEntry strips the legacy key and writes MultiMCP). Do this BEFORE the
+    // "missing entry" marker check -- a legacy entry is itself proof we set this Codex
+    // up, so it heals even without the codexConfigWritten marker, and skipping ahead
+    // would leave both keys behind. Mirrors claudeConfig.
+    if (!existing && legacyKey) {
+      const { clientId } = await credentials.getClientConfig();
+      if (!clientId) return { healed: false, reason: `legacy "${legacyKey}" entry but not configured` };
+      await writeServerEntry();
+      log.info("codexConfig", "Renamed connector", { from: legacyKey, to: SERVER_KEY });
+      return { healed: true, reason: `renamed "${legacyKey}" -> "${SERVER_KEY}"` };
+    }
 
     if (!existing) {
       if (!credentials.readSettings().codexConfigWritten) {
@@ -328,6 +416,13 @@ async function healServerEntryIfStale() {
       if (!clientId) return { healed: false, reason: "no existing entry (not configured)" };
       await writeServerEntry();
       return { healed: true, reason: "entry missing (restored)" };
+    }
+
+    // Our entry exists but a stale legacy one is still alongside it - drop the old one.
+    if (legacyKey) {
+      await writeServerEntry();
+      log.info("codexConfig", "Removed leftover legacy connector", { legacyKey });
+      return { healed: true, reason: `removed leftover "${legacyKey}"` };
     }
 
     const cmd = existing.command;

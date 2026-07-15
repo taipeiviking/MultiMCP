@@ -511,6 +511,30 @@ function upsertTable(raw, { path, scalars, subTables = {}, sentinels = null }) {
   return { text: bom + out, form, replaced: removals.length > 0, eol, bom };
 }
 
+/**
+ * Remove one table (and its children) by path, preserving everything else
+ * byte-for-byte. Used to drop a legacy connector entry (e.g. the old
+ * `google_workspace`) before upserting the current one -- that removal cannot be
+ * folded into upsertTable, because validateEdit forbids any sibling under the
+ * parent from changing during our write, and would (correctly) reject it.
+ *
+ * Structural removal only (no sentinels): it matches whatever legal shape the
+ * table takes -- `[mcp_servers.foo]` + `[mcp_servers.foo.env]`, a root dotted
+ * `mcp_servers.foo = {...}`, or `mcp_servers.foo.command = ...`. Returns the input
+ * unchanged with removed:false when `path` is absent.
+ *
+ * @returns {{ text: string, removed: boolean, bom: string, eol: string }}
+ */
+function removeTable(raw, path) {
+  const { bom, text } = splitBom(raw);
+  const eol = detectEol(text);
+  const items = scan(text); // throws on a file we cannot understand -> caller refuses
+  const ranges = planRemoval(items, path, null);
+  if (!ranges.length) return { text: raw, removed: false, bom, eol };
+  const body = cutRanges(text, ranges);
+  return { text: bom + body, removed: true, bom, eol };
+}
+
 // ---------------------------------------------------------------------------
 // validateEdit(): the safety net that lets the scanner above be pragmatic.
 //
@@ -602,6 +626,7 @@ module.exports = {
   tomlKey,
   tomlValue,
   upsertTable,
+  removeTable,
   validateEdit,
   parseOrNull,
   deepEqual,

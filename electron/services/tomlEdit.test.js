@@ -6,6 +6,7 @@
 const TOML = require("smol-toml");
 const {
   upsertTable,
+  removeTable,
   validateEdit,
   parseOrNull,
   tomlString,
@@ -314,6 +315,56 @@ check("validateEdit rejects an edit that leaves a stale env key", () => {
 });
 check("validateEdit rejects invalid TOML", () => {
   assert(validateEdit({}, "[[[broken", PATH, EXPECTED).length > 0, "validator accepted garbage");
+});
+
+console.log("\n=== removeTable (legacy connector cleanup) ===");
+check("removes a header-form table plus its .env subtable, keeps siblings + other tables", () => {
+  const src =
+    '[mcp_servers.google_workspace]\ncommand = "uvx"\nargs = ["workspace-mcp"]\n\n' +
+    '[mcp_servers.google_workspace.env]\nWORKSPACE_MCP_PORT = "9000"\nSECRET = "x"\n\n' +
+    '[mcp_servers.node_repl]\ncommand = "node"\n\n[tui]\ntheme = "dark"\n';
+  const r = removeTable(src, ["mcp_servers", "google_workspace"]);
+  assert(r.removed === true, "should report removed");
+  const parsed = TOML.parse(r.text);
+  assert(!parsed.mcp_servers.google_workspace, "google_workspace survived");
+  assert(parsed.mcp_servers.node_repl.command === "node", "sibling server lost");
+  assert(parsed.tui.theme === "dark", "unrelated [tui] table lost");
+});
+check("absent table is a no-op (removed:false, text byte-identical)", () => {
+  const src = '[mcp_servers.node_repl]\ncommand = "node"\n';
+  const r = removeTable(src, ["mcp_servers", "google_workspace"]);
+  assert(r.removed === false, "should report not-removed");
+  assert(r.text === src, "text changed on a no-op removal");
+});
+check("does NOT match a prefix sibling (google_workspace_extra stays)", () => {
+  const src =
+    '[mcp_servers.google_workspace_extra]\ncommand = "keep"\n\n' +
+    '[mcp_servers.google_workspace]\ncommand = "drop"\n';
+  const r = removeTable(src, ["mcp_servers", "google_workspace"]);
+  const parsed = TOML.parse(r.text);
+  assert(parsed.mcp_servers.google_workspace_extra.command === "keep", "clobbered a prefix-named sibling");
+  assert(!parsed.mcp_servers.google_workspace, "target not removed");
+});
+check("legacy-strip then upsert yields ONLY MultiMCP under mcp_servers, valid TOML", () => {
+  // Mirrors codexConfig.writeServerEntry: remove google_workspace, then upsert ours.
+  const src =
+    '[mcp_servers.google_workspace]\ncommand = "uvx"\n\n' +
+    '[mcp_servers.google_workspace.env]\nWORKSPACE_MCP_PORT = "9000"\n';
+  const stripped = removeTable(src, ["mcp_servers", "google_workspace"]).text;
+  const out = upsertTable(stripped, { path: PATH, scalars: SCALARS, subTables: { env: ENV }, sentinels: SENTINELS }).text;
+  const parsed = TOML.parse(out);
+  assert(!parsed.mcp_servers.google_workspace, "legacy key present in final output");
+  assert(parsed.mcp_servers.MultiMCP, "MultiMCP missing from final output");
+  assert(Object.keys(parsed.mcp_servers).length === 1, "expected exactly one server after cleanup");
+});
+check("preserves BOM and CRLF while removing", () => {
+  const src = BOM + '[mcp_servers.google_workspace]\r\ncommand = "uvx"\r\n\r\n[tui]\r\ntheme = "dark"\r\n';
+  const r = removeTable(src, ["mcp_servers", "google_workspace"]);
+  assert(r.text.charCodeAt(0) === 0xfeff, "BOM lost");
+  assert(r.eol === "\r\n", "did not detect CRLF");
+  // smol-toml rejects a leading BOM (documented), so strip it before parsing, exactly
+  // as validateEdit does in production.
+  assert(TOML.parse(r.text.replace(/^﻿/, "")).tui.theme === "dark", "lost [tui]");
 });
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
