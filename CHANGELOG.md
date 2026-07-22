@@ -4,6 +4,12 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.8.2 — 2026-07-16
+*Autostart stays in the tray on restart — no more dashboard popping open every login.*
+
+### Fixed
+- **The main window no longer opens on every PC restart.** Autostart deliberately registers **two** launchers for reliability — a scheduled logon task *and* an HKCU `Run` key — and both fire at login with `--hidden`. The first instance starts hidden and takes the single-instance lock; the second can't, so it fell through to the `second-instance` handler, which **unconditionally showed the window**. The handler now ignores autostart relaunches (they carry `--hidden`) and only surfaces the dashboard for a genuine user-initiated relaunch (e.g. double-clicking the icon). Net: a restart lands silently in the system tray, exactly as intended.
+
 ## v0.8.1 — 2026-07-15
 *ChatGPT Codex: clean up the old connector so it can't reopen sign-in tabs.*
 

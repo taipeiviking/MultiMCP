@@ -59,7 +59,16 @@ const notifiedState = new Map(); // email -> last notified state ("expired"|"soo
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => showWindow());
+  // Both autostart launchers fire at login — the scheduled logon task AND the
+  // HKCU Run-key fallback (kept for reliability). Whichever loses the
+  // single-instance race lands here. An autostart launch carries --hidden and
+  // must stay in the tray; only a genuine user-initiated relaunch (no --hidden,
+  // e.g. double-clicking the icon) should surface the window. Without this guard
+  // the redundant login launcher pops the dashboard on every restart.
+  app.on("second-instance", (_event, argv) => {
+    if (Array.isArray(argv) && argv.includes("--hidden")) return;
+    showWindow();
+  });
   bootstrap();
 }
 
