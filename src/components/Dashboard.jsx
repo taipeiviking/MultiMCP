@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import AccountCard from "./AccountCard.jsx";
 import SignalCard from "./SignalCard.jsx";
+import TelegramCard from "./TelegramCard.jsx";
 import ImportSettings from "./ImportSettings.jsx";
 import GuidanceModal from "./GuidanceModal.jsx";
 
@@ -9,6 +10,7 @@ const api = window.api;
 export default function Dashboard({ creds, onChangeCreds }) {
   const [accounts, setAccounts] = useState([]);
   const [signalStatus, setSignalStatus] = useState(null);
+  const [telegramStatus, setTelegramStatus] = useState(null);
   const [claude, setClaude] = useState(null);
   const [codex, setCodex] = useState(null);
   const [codexErr, setCodexErr] = useState("");
@@ -31,9 +33,10 @@ export default function Dashboard({ creds, onChangeCreds }) {
   }
 
   const refresh = useCallback(async () => {
-    const [a, s, c, x, gc, gx] = await Promise.all([
+    const [a, s, t, c, x, gc, gx] = await Promise.all([
       api.accounts.list(),
       api.signal?.status().catch(() => null),
+      api.telegram?.status().catch(() => null),
       api.claude.status(),
       api.codex?.status().catch(() => null),
       api.guidance?.status("claude").catch(() => null),
@@ -41,6 +44,7 @@ export default function Dashboard({ creds, onChangeCreds }) {
     ]);
     setAccounts(a);
     setSignalStatus(s);
+    setTelegramStatus(t);
     setClaude(c);
     setCodex(x);
     setGuidance({ claude: gc, codex: gx });
@@ -192,6 +196,18 @@ export default function Dashboard({ creds, onChangeCreds }) {
         </div>
         <div className="account-list">
           <SignalCard status={signalStatus} onChanged={refresh} />
+        </div>
+      </section>
+
+      <section className="service">
+        <div className="service__head">
+          <h2>Telegram</h2>
+          <span className="muted small">
+            send, read &amp; search your full Telegram history from the AI — beta
+          </span>
+        </div>
+        <div className="account-list">
+          <TelegramCard status={telegramStatus} onChanged={refresh} />
         </div>
       </section>
 

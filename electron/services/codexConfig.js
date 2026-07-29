@@ -16,16 +16,19 @@ const credentials = require("./credentials");
 const serverManager = require("./serverManager");
 const noBrowser = require("./noBrowser");
 const signal = require("./signal");
+const telegram = require("./telegram");
 const tomlEdit = require("./tomlEdit");
 const log = require("./logger");
 
 const SERVER_KEY = "MultiMCP";
 const TABLE_PATH = ["mcp_servers", SERVER_KEY]; // note: Codex uses mcp_servers (underscore)
 
-// Second managed entry: the Signal connector (claudeConfig.SIGNAL_SERVER_KEY is
-// the same name — the two clients must show the same connector list).
+// Additional managed entries beyond the Google one (same key names as
+// claudeConfig — the two clients must show the same connector list).
 const SIGNAL_SERVER_KEY = "MultiMCP-Signal";
 const SIGNAL_TABLE_PATH = ["mcp_servers", SIGNAL_SERVER_KEY];
+const TELEGRAM_SERVER_KEY = "MultiMCP-Telegram";
+const TELEGRAM_TABLE_PATH = ["mcp_servers", TELEGRAM_SERVER_KEY];
 
 // The old connector name. A config.toml that still has [mcp_servers.google_workspace]
 // was written by an older build of ours. Left in place, Codex spawns BOTH servers,
@@ -108,6 +111,9 @@ const SENTINELS = {
 const SIGNAL_SENTINELS = {
   begin: "# >>> MultiMCP-Signal (managed by Google Workspace Manager) - regenerated on write, do not edit",
 };
+const TELEGRAM_SENTINELS = {
+  begin: "# >>> MultiMCP-Telegram (managed by Google Workspace Manager) - regenerated on write, do not edit",
+};
 
 // Env keys that must match for an existing entry to count as up to date. Same
 // contract as claudeConfig.CRITICAL_ENV: anything load-bearing MUST be listed, or
@@ -181,24 +187,29 @@ async function buildEntry() {
   return { scalars, env, expected: Object.assign({}, scalars, { env }) };
 }
 
-// The Signal entry in Codex form, or null when it should not exist (not linked /
-// engine not bundled). Same env contract as the Claude entry (signal.js owns it).
-async function buildSignalEntry() {
-  const parts = await signal.buildEntryParts();
+// An extra entry (Signal, Telegram, …) in Codex form, or null when it should
+// not exist (not linked / engine not bundled). Env contracts are owned by the
+// respective services; the timeouts are shared: first launch has uv sync the
+// package and start a daemon — beyond Codex's 10s default — and long-poll
+// tools (wait_for_message) need the tool's own timeout to win.
+async function buildExtraEntry(svc) {
+  const parts = await svc.buildEntryParts();
   if (!parts) return null;
   const scalars = {
     command: parts.command,
     args: parts.args,
-    // The first launch has uv build the local multimcp-signal package and then
-    // start a JVM daemon — comfortably beyond Codex's 10s default, same reason
-    // as the Google entry above.
     startup_timeout_sec: 120,
-    // wait_for_message is the long pole: the tool's own timeout must win, not
-    // Codex's.
     tool_timeout_sec: 300,
   };
   return { scalars, env: parts.env, expected: Object.assign({}, scalars, { env: parts.env }) };
 }
+
+// Everything this app manages in config.toml beyond the Google entry. Order
+// matters only for deterministic file layout.
+const EXTRA_SERVERS = [
+  { key: SIGNAL_SERVER_KEY, tablePath: SIGNAL_TABLE_PATH, sentinels: SIGNAL_SENTINELS, svc: signal },
+  { key: TELEGRAM_SERVER_KEY, tablePath: TELEGRAM_TABLE_PATH, sentinels: TELEGRAM_SENTINELS, svc: telegram },
+];
 
 async function writeServerEntry() {
   const p = configPath();
@@ -262,51 +273,55 @@ async function writeServerEntry() {
   // (the legacy-removal loop above set the precedent).
   let baseline = tomlEdit.parseOrNull(workingRaw);
 
-  // 2b. The Signal entry: upsert while linked, remove when not. Each direction is
-  //     its own validated edit, so a slicing bug still degrades to "refuse", never
-  //     to a corrupted file.
-  const sig = await buildSignalEntry();
-  if (sig) {
-    const sigEdit = tomlEdit.upsertTable(workingRaw, {
-      path: SIGNAL_TABLE_PATH,
-      scalars: sig.scalars,
-      subTables: { env: sig.env },
-      sentinels: SIGNAL_SENTINELS,
-    });
-    const sigProblems = tomlEdit.validateEdit(baseline, sigEdit.text, SIGNAL_TABLE_PATH, sig.expected);
-    if (sigProblems.length) {
-      log.error("codexConfig", "refusing to write: signal validation failed", { path: p, problems: sigProblems });
-      throw new Error(`Refusing to write ${p}: ${sigProblems.join("; ")}`);
-    }
-    workingRaw = sigEdit.text;
-    baseline = tomlEdit.parseOrNull(workingRaw);
-  } else {
-    const r = tomlEdit.removeTable(workingRaw, SIGNAL_TABLE_PATH);
-    if (r.removed) {
-      const after = tomlEdit.parseOrNull(r.text);
-      if (after === null) {
-        throw new Error(`Refusing to write ${p}: removing "${SIGNAL_SERVER_KEY}" produced invalid TOML`);
+  // 2b. Extra entries (Signal, Telegram): upsert while linked, remove when not.
+  //     Each direction is its own validated edit, so a slicing bug still
+  //     degrades to "refuse", never to a corrupted file.
+  const written = [SERVER_KEY];
+  for (const extra of EXTRA_SERVERS) {
+    const built = await buildExtraEntry(extra.svc);
+    if (built) {
+      const extraEdit = tomlEdit.upsertTable(workingRaw, {
+        path: extra.tablePath,
+        scalars: built.scalars,
+        subTables: { env: built.env },
+        sentinels: extra.sentinels,
+      });
+      const extraProblems = tomlEdit.validateEdit(baseline, extraEdit.text, extra.tablePath, built.expected);
+      if (extraProblems.length) {
+        log.error("codexConfig", "refusing to write: extra-entry validation failed", { path: p, key: extra.key, problems: extraProblems });
+        throw new Error(`Refusing to write ${p}: ${extraProblems.join("; ")}`);
       }
-      const rmProblems = validateRemoval(baseline, after, SIGNAL_SERVER_KEY);
-      if (rmProblems.length) {
-        log.error("codexConfig", "refusing to write: signal removal changed too much", { path: p, problems: rmProblems });
-        throw new Error(`Refusing to write ${p}: removing "${SIGNAL_SERVER_KEY}" changed more than expected (${rmProblems.join("; ")})`);
-      }
-      log.info("codexConfig", "Removed Signal connector (no longer linked)");
-      workingRaw = r.text;
-      baseline = after;
+      workingRaw = extraEdit.text;
+      baseline = tomlEdit.parseOrNull(workingRaw);
+      written.push(extra.key);
+    } else {
+      const r = tomlEdit.removeTable(workingRaw, extra.tablePath);
+      if (r.removed) {
+        const after = tomlEdit.parseOrNull(r.text);
+        if (after === null) {
+          throw new Error(`Refusing to write ${p}: removing "${extra.key}" produced invalid TOML`);
+        }
+        const rmProblems = validateRemoval(baseline, after, extra.key);
+        if (rmProblems.length) {
+          log.error("codexConfig", "refusing to write: extra-entry removal changed too much", { path: p, key: extra.key, problems: rmProblems });
+          throw new Error(`Refusing to write ${p}: removing "${extra.key}" changed more than expected (${rmProblems.join("; ")})`);
+        }
+        log.info("codexConfig", "Removed connector (no longer linked)", { key: extra.key });
+        workingRaw = r.text;
+        baseline = after;
 
-      // removeTable is structural and knows nothing of sentinels, so our marker
-      // comment above the removed block survives as litter. It is an EXACT line
-      // we wrote; dropping it cannot change parsed content — verified anyway.
-      const lines = workingRaw.split(/\r?\n/);
-      const kept = lines.filter((l) => l.trim() !== SIGNAL_SENTINELS.begin);
-      if (kept.length !== lines.length) {
-        const eol = /\r\n/.test(workingRaw) ? "\r\n" : "\n";
-        const candidate = kept.join(eol);
-        const reparsed = tomlEdit.parseOrNull(candidate);
-        if (reparsed !== null && tomlEdit.deepEqual(reparsed, baseline)) {
-          workingRaw = candidate;
+        // removeTable is structural and knows nothing of sentinels, so our marker
+        // comment above the removed block survives as litter. It is an EXACT line
+        // we wrote; dropping it cannot change parsed content — verified anyway.
+        const lines = workingRaw.split(/\r?\n/);
+        const kept = lines.filter((l) => l.trim() !== extra.sentinels.begin);
+        if (kept.length !== lines.length) {
+          const eol = /\r\n/.test(workingRaw) ? "\r\n" : "\n";
+          const candidate = kept.join(eol);
+          const reparsed = tomlEdit.parseOrNull(candidate);
+          if (reparsed !== null && tomlEdit.deepEqual(reparsed, baseline)) {
+            workingRaw = candidate;
+          }
         }
       }
     }
@@ -373,7 +388,7 @@ async function writeServerEntry() {
   log.info("codexConfig", "Wrote Codex config", {
     path: p,
     backup,
-    keys: sig ? [SERVER_KEY, SIGNAL_SERVER_KEY] : [SERVER_KEY],
+    keys: written,
     form: edit.form, // "header" (normal) or "dotted" (file already used dotted keys)
     replacedExisting: edit.replaced,
     eol: edit.eol === "\r\n" ? "CRLF" : "LF",
@@ -383,7 +398,7 @@ async function writeServerEntry() {
     secretInjected: Object.prototype.hasOwnProperty.call(env, "GOOGLE_OAUTH_CLIENT_SECRET"),
     browserSuppressed: !!env.BROWSER,
     preservedServers: Object.keys(oldParsedClean.mcp_servers || {}).filter(
-      (k) => k !== SERVER_KEY && k !== SIGNAL_SERVER_KEY
+      (k) => k !== SERVER_KEY && !EXTRA_SERVERS.some((x) => x.key === k)
     ),
   });
 
@@ -404,18 +419,21 @@ function entryMatches(existing, expected, critical = CRITICAL_ENV) {
   return critical.every((k) => existing.env[k] === expected.env[k]);
 }
 
-// Is the Signal entry in the state it should be in? Shared by getStatus and
+// Are the extra entries in the state they should be in? Shared by getStatus and
 // healServerEntryIfStale so the UI's "in sync" and the healer's "entry ok" are
-// the same judgement.
-async function signalSyncState(parsed) {
-  const existing = parsed.mcp_servers && parsed.mcp_servers[SIGNAL_SERVER_KEY];
-  const sig = await buildSignalEntry();
-  if (!sig) return { present: !!existing, desired: false, inSync: !existing };
-  return {
-    present: !!existing,
-    desired: true,
-    inSync: entryMatches(existing, sig.expected, signal.CRITICAL_ENV),
-  };
+// the same judgement. Returns one state per EXTRA_SERVERS element.
+async function extraSyncStates(parsed) {
+  const states = [];
+  for (const extra of EXTRA_SERVERS) {
+    const existing = parsed.mcp_servers && parsed.mcp_servers[extra.key];
+    const built = await buildExtraEntry(extra.svc);
+    states.push(
+      built
+        ? { key: extra.key, present: !!existing, desired: true, inSync: entryMatches(existing, built.expected, extra.svc.CRITICAL_ENV) }
+        : { key: extra.key, present: !!existing, desired: false, inSync: !existing }
+    );
+  }
+  return states;
 }
 
 // Is Codex on this machine at all? Used only to decide whether the UI shows the
@@ -480,7 +498,7 @@ async function getStatus() {
   const existing = parsed.mcp_servers && parsed.mcp_servers[SERVER_KEY];
   const { expected } = await buildEntry();
   const legacyKey = findLegacyKeys(parsed)[0] || null;
-  const signalState = await signalSyncState(parsed);
+  const extraStates = await extraSyncStates(parsed);
   return {
     // If our entry is already in there, treat Codex as installed no matter what
     // detection thinks - never grey out a section that has live state in it.
@@ -489,11 +507,10 @@ async function getStatus() {
     present: !!existing,
     // A leftover google_workspace entry means "not in sync" even if ours looks right:
     // Codex would spawn BOTH servers and the old one still opens OAuth tabs.
-    inSync: !legacyKey && entryMatches(existing, expected) && signalState.inSync,
+    inSync: !legacyKey && entryMatches(existing, expected) && extraStates.every((s) => s.inSync),
     legacyKey,
     path: p,
-    signalPresent: signalState.present,
-    signalDesired: signalState.desired,
+    extraStates,
   };
 }
 
@@ -544,8 +561,8 @@ async function healServerEntryIfStale() {
     const missing = cmd && path.isAbsolute(cmd) && !fs.existsSync(cmd);
     const { expected } = await buildEntry();
     const envStale = !entryMatches(existing, expected);
-    const signalState = await signalSyncState(parsed);
-    if (!isBare && !missing && !envStale && signalState.inSync) {
+    const extraStates = await extraSyncStates(parsed);
+    if (!isBare && !missing && !envStale && extraStates.every((s) => s.inSync)) {
       return { healed: false, reason: "entry ok" };
     }
 
@@ -561,7 +578,7 @@ async function healServerEntryIfStale() {
         ? "missing file"
         : envStale
           ? `stale env: ${staleKeys.join(", ")}`
-          : "signal entry drift";
+          : `connector drift: ${extraStates.filter((s) => !s.inSync).map((s) => s.key).join(", ")}`;
     await writeServerEntry();
     log.info("codexConfig", "Healed stale Codex config", { was: cmd, now: good, reason });
     return { healed: true, was: cmd, now: good, reason };
@@ -579,7 +596,9 @@ module.exports = {
   buildEntry,
   SERVER_KEY,
   SIGNAL_SERVER_KEY,
+  TELEGRAM_SERVER_KEY,
   CODEX_MCP_PORT,
   SENTINELS,
   SIGNAL_SENTINELS,
+  TELEGRAM_SENTINELS,
 };

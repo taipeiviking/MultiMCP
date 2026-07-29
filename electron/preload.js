@@ -51,6 +51,18 @@ contextBridge.exposeInMainWorld("api", {
       return () => ipcRenderer.removeListener("signal:linkUri", listener);
     },
   },
+  telegram: {
+    status: () => ipcRenderer.invoke("telegram:status"),
+    saveCreds: (apiId, apiHash) => ipcRenderer.invoke("telegram:saveCreds", { apiId, apiHash }),
+    startLogin: (phone) => ipcRenderer.invoke("telegram:startLogin", { phone }),
+    submitCode: (code) => ipcRenderer.invoke("telegram:submitCode", { code }),
+    submitPassword: (password) => ipcRenderer.invoke("telegram:submitPassword", { password }),
+    unlink: () => ipcRenderer.invoke("telegram:unlink"),
+    // Guided portal setup (auto api_id/api_hash)
+    portalRequestCode: (phone) => ipcRenderer.invoke("telegramPortal:requestCode", { phone }),
+    portalComplete: (code) => ipcRenderer.invoke("telegramPortal:complete", { code }),
+    portalCancel: () => ipcRenderer.invoke("telegramPortal:cancel"),
+  },
   server: {
     test: () => ipcRenderer.invoke("server:test"),
   },

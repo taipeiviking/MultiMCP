@@ -4,6 +4,44 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.10.1 — unreleased
+*Telegram setup with zero copy-paste — the app gets your API credentials for you.*
+
+### Added
+- **Guided Telegram setup.** Instead of visiting my.telegram.org, creating an application, and
+  copying two values, you now just enter your phone number and the one code Telegram sends you.
+  The app completes the my.telegram.org exchange in the background — logging in, registering the
+  application if needed, and capturing your `api_id`/`api_hash` — then rolls straight into the
+  connector sign-in. Manual entry stays available as a one-click fallback (the portal is
+  unofficial and occasionally refuses automated app creation).
+
+### Notes
+- The my.telegram.org web session used for guided setup is held only in memory for that single
+  exchange and never stored — only the resulting api_id (settings) and api_hash (Windows
+  Credential Manager) are kept, exactly as with manual entry.
+
+## v0.10.0 — unreleased
+*Telegram joins the hub — your full server-side history, readable and searchable from the AI.*
+
+### Added
+- **Telegram connector (beta).** A new **Telegram** section on the dashboard: enter your own
+  (free) API credentials from [my.telegram.org/apps](https://my.telegram.org/apps) once, sign in
+  with your phone number + login code (and 2FA password if set) — no QR needed. **Write config**
+  then adds a third connector, **`MultiMCP-Telegram`**, to Claude Desktop and ChatGPT Codex,
+  with tools to list chats, read any chat, search, and send messages. Unlike Signal, Telegram
+  stores history **server-side** — the connector reads your entire history live, so there is no
+  collector and nothing to import.
+- Same architecture as Signal under the hood: one shared daemon (a Telethon client on pinned
+  local port `7584` — Telethon sessions must never be used by two processes) that every AI
+  client's server connects to, spawning it only if absent. The daemon and server ship as an
+  in-repo Python package (`multimcp-telegram`) launched via `uv run --project`.
+
+### Internal
+- The Codex config writer's extra-entry handling (upsert/remove/validate/heal per connector) is
+  now a loop over a connector registry rather than Signal-specific code — the fourth connector
+  will be UI + a service module only.
+- The installer's daemon-stopper now also covers python daemons running from the install dir.
+
 ## v0.9.1 — 2026-07-29
 *Back-fill your Signal history: one click imports everything from Signal Desktop.*
 

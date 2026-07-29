@@ -8,6 +8,7 @@ const credentials = require("./credentials");
 const serverManager = require("./serverManager");
 const noBrowser = require("./noBrowser");
 const signal = require("./signal");
+const telegram = require("./telegram");
 const log = require("./logger");
 
 // The key in claude_desktop_config.json IS the connector name Claude shows in its
@@ -20,6 +21,7 @@ const SERVER_KEY = "MultiMCP";
 // on the Google one — because it is a different server process with a different
 // lifecycle; sharing a key would couple their staleness and their restarts.
 const SIGNAL_SERVER_KEY = "MultiMCP-Signal";
+const TELEGRAM_SERVER_KEY = "MultiMCP-Telegram";
 
 // Older names we must clean up when we (re)write the entry - otherwise Claude would
 // list the connector twice, and the stale one would still spawn a second server.
@@ -131,7 +133,7 @@ function verifyOnDisk(p, desired, preservedServers) {
 
 // Every key this app owns in the user's config. Anything else in mcpServers is
 // the user's and must never be touched.
-const MANAGED_KEYS = [SERVER_KEY, SIGNAL_SERVER_KEY];
+const MANAGED_KEYS = [SERVER_KEY, SIGNAL_SERVER_KEY, TELEGRAM_SERVER_KEY];
 
 async function buildEntry() {
   const { clientId, credentialsDir } = await credentials.getClientConfig();
@@ -218,6 +220,8 @@ async function desiredEntries() {
   ];
   const sig = await signal.buildEntryParts();
   if (sig) entries.push({ key: SIGNAL_SERVER_KEY, entry: sig, critical: signal.CRITICAL_ENV });
+  const tg = await telegram.buildEntryParts();
+  if (tg) entries.push({ key: TELEGRAM_SERVER_KEY, entry: tg, critical: telegram.CRITICAL_ENV });
   return entries;
 }
 
@@ -334,7 +338,7 @@ async function healServerEntryIfStale() {
         ? "missing file"
         : staleKeys.length
           ? `stale env: ${staleKeys.join(", ")}`
-          : "signal entry drift";
+          : "connector entry drift";
     await writeServerEntry();
     log.info("claudeConfig", "Healed stale Claude config", {
       was: cmd,
@@ -463,4 +467,5 @@ module.exports = {
   configPath,
   SERVER_KEY,
   SIGNAL_SERVER_KEY,
+  TELEGRAM_SERVER_KEY,
 };

@@ -36,8 +36,14 @@
 ; exactly the java processes whose image path is under our install dir — never
 ; unrelated Java applications.
 !macro GWM_StopDaemon
-  nsExec::Exec `powershell -NoProfile -NonInteractive -Command "Get-Process java -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\*' } | Stop-Process -Force -ErrorAction SilentlyContinue"`
-  Sleep 300
+  ; java = signal-cli daemon; python/pythonw = multimcp-telegram daemon (pythonw
+  ; is the windowless variant it now runs as); uv = the launcher. All matched BY
+  ; PATH — only processes running from our install dir are ever touched, never
+  ; unrelated Java/Python apps. Missing pythonw here left the daemon locking the
+  ; venv and made an upgrade fail with "Failed to uninstall old application
+  ; files".
+  nsExec::Exec `powershell -NoProfile -NonInteractive -Command "Get-Process java,python,pythonw,uv -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\*' } | Stop-Process -Force -ErrorAction SilentlyContinue"`
+  Sleep 500
 !macroend
 
 !macro GWM_StopApp

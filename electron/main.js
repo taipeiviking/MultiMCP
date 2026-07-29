@@ -34,6 +34,8 @@ const noBrowser = require("./services/noBrowser");
 const signal = require("./services/signal");
 const signalCapture = require("./services/signalCapture");
 const signalImport = require("./services/signalImport");
+const telegram = require("./services/telegram");
+const telegramPortal = require("./services/telegramPortal");
 const tokenGuard = require("./services/tokenGuard");
 const guidance = require("./services/guidance");
 const backup = require("./services/backup");
@@ -111,6 +113,9 @@ function bootstrap() {
     // message is only stored if something is listening when it arrives — and
     // this tray app is the process that is always alive to listen).
     signalCapture.start();
+    // Warm the Telegram venv quietly so first sign-in doesn't flash a console
+    // window while uv syncs packages (only does work when Telegram is set up).
+    telegram.prewarm();
     createTray();
     const startHidden =
       process.argv.includes("--hidden") ||
@@ -890,6 +895,22 @@ function registerIpc() {
   // Long-running (seconds to a minute for years of history) but idempotent —
   // dedup keys make re-imports harmless.
   handle("signal:importDesktop", () => signalImport.importFromDesktop());
+
+  // Telegram. Login = api_id/api_hash (user's own my.telegram.org pair) once,
+  // then phone number -> code typed into the app (maybe a 2FA password). All
+  // flows go through the shared daemon; see services/telegram.js.
+  handle("telegram:status", () => telegram.getStatus());
+  handle("telegram:saveCreds", ({ apiId, apiHash }) => telegram.saveApiCreds(apiId, apiHash));
+  handle("telegram:startLogin", ({ phone }) => telegram.startLogin(phone));
+  handle("telegram:submitCode", ({ code }) => telegram.submitCode(code));
+  handle("telegram:submitPassword", ({ password }) => telegram.submitPassword(password));
+  handle("telegram:unlink", () => telegram.unlink());
+  // Guided setup: fetch api_id/api_hash from my.telegram.org for the user so
+  // they never touch the portal. Manual entry (telegram:saveCreds) remains the
+  // fallback the UI offers if this fails.
+  handle("telegramPortal:requestCode", ({ phone }) => telegramPortal.requestWebCode(phone));
+  handle("telegramPortal:complete", ({ code }) => telegramPortal.completeSetup(code));
+  handle("telegramPortal:cancel", () => telegramPortal.cancel());
 
   // diagnostics
   handle("server:test", () => serverManager.testServer());
