@@ -31,3 +31,6 @@ python/**/.venv/
 python/**/__pycache__/
 python/**/*.egg-info/
 uv.lock
+
+# session working notes (local only)
+_SESSION-CONTEXT-*.md

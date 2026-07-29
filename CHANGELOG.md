@@ -4,7 +4,7 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
-## v0.9.1 — unreleased
+## v0.9.1 — 2026-07-29
 *Back-fill your Signal history: one click imports everything from Signal Desktop.*
 
 ### Added
@@ -28,7 +28,7 @@ installer attached. Versioning is `MAJOR.MINOR.PATCH`.
   (or from a phone-only past) exists only in phone backups — Android's encrypted backup file
   could be a future import source; iPhone offers no export.
 
-## v0.9.0 — unreleased
+## v0.9.0 — 2026-07-29
 *Signal messenger joins Gmail/Drive/Calendar — link once with a QR code, then message from Claude or Codex.*
 
 ### Added
