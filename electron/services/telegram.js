@@ -297,15 +297,29 @@ async function unlink() {
 // Env keys whose drift makes a written client-config entry stale.
 const CRITICAL_ENV = ["TELEGRAM_API_ID", "TELEGRAM_SESSION_DIR", "TELEGRAM_DAEMON_PORT"];
 
+// The venv's console python (has stdio, which the MCP server needs — unlike the
+// windowless daemon's pythonw). Launching this DIRECTLY as the config command,
+// instead of `uv run` (uv.exe -> python.exe), keeps it a single process so the
+// AI client's own no-window flag actually suppresses the console. `uv run`
+// spawned a grandchild python that escaped that flag and flashed a window.
+function venvPython(src) {
+  const p = path.join(src, ".venv", "Scripts", process.platform === "win32" ? "python.exe" : "python");
+  return fs.existsSync(p) ? p : null;
+}
+
 async function buildEntryParts() {
   const { apiId, apiHash } = await getApiCreds();
   const s = credentials.readSettings();
   const src = serverSrcPath();
   const uv = await uvPath();
   if (!apiId || !apiHash || !s.telegramAccount || !src || !uv) return null;
+  // Prefer the direct venv python (windowless under the client); fall back to
+  // `uv run` only until prewarm has synced the venv, after which heal rewrites
+  // the entry to the direct form.
+  const vpy = venvPython(src);
   return {
-    command: uv,
-    args: ["run", "--project", src, "multimcp-telegram"],
+    command: vpy || uv,
+    args: vpy ? ["-m", "multimcp_telegram.server"] : ["run", "--project", src, "multimcp-telegram"],
     env: {
       TELEGRAM_API_ID: apiId,
       TELEGRAM_API_HASH: apiHash,

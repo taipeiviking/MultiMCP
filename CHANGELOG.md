@@ -4,6 +4,17 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.10.2 — unreleased
+*No more stray console window — the MCP servers run fully hidden.*
+
+### Fixed
+- **The Telegram (and Signal) MCP server no longer flashes a console window.** The AI client
+  launched the server via `uv run`, which made `uv.exe` spawn a **child** `python.exe` that
+  escaped the client's window-hiding and showed a terminal. The config entry now points directly
+  at the connector's venv `python.exe` (a single process the client hides), and both venvs are
+  synced quietly at app startup so the direct form is ready on first use. Existing installs
+  self-heal their config to the new form on launch.
+
 ## v0.10.1 — unreleased
 *Telegram setup with zero copy-paste — the app gets your API credentials for you.*
 

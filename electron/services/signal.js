@@ -421,9 +421,16 @@ async function buildEntryParts() {
   const uvPath = uvxPath
     ? path.join(path.dirname(uvxPath), process.platform === "win32" ? "uv.exe" : "uv")
     : null;
+  const uv = uvPath && fs.existsSync(uvPath) ? uvPath : "uv";
+  // Prefer the venv's console python DIRECTLY over `uv run`: uv.exe -> python.exe
+  // spawns a grandchild the AI client's no-window flag doesn't cover, so it
+  // flashed a console. A direct single process stays hidden. Falls back to
+  // `uv run` until prewarm syncs the venv, then heal rewrites to the direct form.
+  const vpy = path.join(engine.serverSrc, ".venv", "Scripts", process.platform === "win32" ? "python.exe" : "python");
+  const useVenv = fs.existsSync(vpy);
   return {
-    command: uvPath && fs.existsSync(uvPath) ? uvPath : "uv",
-    args: ["run", "--project", engine.serverSrc, "multimcp-signal"],
+    command: useVenv ? vpy : uv,
+    args: useVenv ? ["-m", "multimcp_signal.server"] : ["run", "--project", engine.serverSrc, "multimcp-signal"],
     env: {
       SIGNAL_ACCOUNT: account,
       SIGNAL_CLI_PATH: engine.signalCli,
@@ -432,6 +439,22 @@ async function buildEntryParts() {
       SIGNAL_DAEMON_PORT: String(SIGNAL_DAEMON_PORT),
     },
   };
+}
+
+// Sync the signal server's venv at startup (windowless), so the direct-venv
+// python entry above exists on first use instead of falling back to `uv run`.
+async function prewarm() {
+  const engine = engineStatus();
+  const uvxPath = await serverManager.resolveUvxPath();
+  if (!engine.serverSrc || !uvxPath) return;
+  const uv = path.join(path.dirname(uvxPath), process.platform === "win32" ? "uv.exe" : "uv");
+  if (!fs.existsSync(uv)) return;
+  try {
+    const child = spawn(uv, ["sync", "--project", engine.serverSrc], { windowsHide: true, stdio: "ignore" });
+    child.on("error", () => {});
+  } catch {
+    /* best effort */
+  }
 }
 
 module.exports = {
@@ -443,6 +466,7 @@ module.exports = {
   engineStatus,
   dataDir,
   javaInvocation,
+  prewarm,
   CRITICAL_ENV,
   SIGNAL_DAEMON_PORT,
 };

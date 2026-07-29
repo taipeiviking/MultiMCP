@@ -34,3 +34,6 @@ uv.lock
 
 # session working notes (local only)
 _SESSION-CONTEXT-*.md
+
+# electron-builder installer output (separate from vite dist/)
+release/

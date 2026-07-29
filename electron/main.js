@@ -113,8 +113,10 @@ function bootstrap() {
     // message is only stored if something is listening when it arrives — and
     // this tray app is the process that is always alive to listen).
     signalCapture.start();
-    // Warm the Telegram venv quietly so first sign-in doesn't flash a console
-    // window while uv syncs packages (only does work when Telegram is set up).
+    // Warm both connectors' venvs quietly at startup so their MCP servers launch
+    // as a direct (windowless) venv python instead of falling back to `uv run`
+    // (which flashes a console), and so first sign-in doesn't wait on a sync.
+    signal.prewarm();
     telegram.prewarm();
     createTray();
     const startHidden =
