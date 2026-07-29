@@ -33,6 +33,7 @@ const codexConfig = require("./services/codexConfig");
 const noBrowser = require("./services/noBrowser");
 const signal = require("./services/signal");
 const signalCapture = require("./services/signalCapture");
+const signalImport = require("./services/signalImport");
 const tokenGuard = require("./services/tokenGuard");
 const guidance = require("./services/guidance");
 const backup = require("./services/backup");
@@ -885,6 +886,10 @@ function registerIpc() {
     return r;
   });
   handle("signal:captureStatus", () => signalCapture.getStatus());
+  // One-click back-fill from Signal Desktop's local database (bundled sigtop).
+  // Long-running (seconds to a minute for years of history) but idempotent —
+  // dedup keys make re-imports harmless.
+  handle("signal:importDesktop", () => signalImport.importFromDesktop());
 
   // diagnostics
   handle("server:test", () => serverManager.testServer());

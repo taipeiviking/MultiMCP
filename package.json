@@ -1,6 +1,6 @@
 {
   "name": "google-workspace-manager",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Local control panel to connect multiple Google Workspace accounts to Claude Desktop via workspace-mcp.",
   "author": "",
   "license": "MIT",
@@ -10,8 +10,9 @@
     "dev:renderer": "vite",
     "fetch-uv": "node scripts/fetch-uv.js",
     "fetch-signal": "node scripts/fetch-signal.js",
+    "fetch-sigtop": "node scripts/fetch-sigtop.js",
     "build": "vite build",
-    "dist": "npm run fetch-uv && npm run fetch-signal && npm run build && electron-builder --win nsis",
+    "dist": "npm run fetch-uv && npm run fetch-signal && npm run fetch-sigtop && npm run build && electron-builder --win nsis",
     "rebuild": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -62,6 +63,13 @@
           "**/*",
           "!*.tar.gz",
           "!*.zip"
+        ]
+      },
+      {
+        "from": "vendor/sigtop",
+        "to": "sigtop",
+        "filter": [
+          "sigtop.exe"
         ]
       },
       {

@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld("api", {
     cancelLink: () => ipcRenderer.invoke("signal:linkCancel"),
     unlink: () => ipcRenderer.invoke("signal:unlink"),
     captureStatus: () => ipcRenderer.invoke("signal:captureStatus"),
+    importDesktop: () => ipcRenderer.invoke("signal:importDesktop"),
     // The link URI arrives mid-flow (link() is still pending when it does), so it
     // comes as an event. Returns an unsubscribe function; no raw ipcRenderer leaks.
     onLinkUri: (cb) => {

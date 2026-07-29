@@ -4,6 +4,30 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.9.1 — unreleased
+*Back-fill your Signal history: one click imports everything from Signal Desktop.*
+
+### Added
+- **Import Signal Desktop history.** A new button in the Signal collector box reads Signal
+  Desktop's local database (via the bundled [sigtop](https://github.com/tbvdm/sigtop), decrypted
+  as the same Windows user) and merges its entire message history into the connector's store —
+  in a first live run, ~19,000 messages across 70 conversations. Deduplicated against live
+  captures, so it's safe to re-run any time (e.g. periodically, to pick up whatever Signal
+  Desktop saw while the collector wasn't running). Signal Desktop must be closed during the
+  import; the button says so instead of failing cryptically.
+
+### Fixed
+- **Upgrades no longer hang while the Signal engine is running.** The background daemon (a
+  java process running from the app's own resources) locked files the installer needed to
+  replace, and a silent upgrade would stall indefinitely. The installer now stops exactly the
+  java processes running from its install directory (never unrelated Java apps) before writing
+  files — on install and uninstall. (Applies to installers built from this version onward.)
+
+### Notes
+- The import reaches back to when Signal Desktop was first linked. History from before that
+  (or from a phone-only past) exists only in phone backups — Android's encrypted backup file
+  could be a future import source; iPhone offers no export.
+
 ## v0.9.0 — unreleased
 *Signal messenger joins Gmail/Drive/Calendar — link once with a QR code, then message from Claude or Codex.*
 

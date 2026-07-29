@@ -13,6 +13,8 @@ export default function SignalCard({ status, onChanged }) {
   const [msg, setMsg] = useState(null); // { kind: "info"|"error", text }
   const [busy, setBusy] = useState(false);
   const [capture, setCapture] = useState(null); // background capture status
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState(null); // { kind, text }
   const unsubRef = useRef(null);
 
   // The capture service lives in the main process and changes on its own
@@ -171,10 +173,43 @@ export default function SignalCard({ status, onChanged }) {
           {capture.activity?.length > 0 && (
             <pre className="capture-box__log">{capture.activity.join("\n")}</pre>
           )}
-          <p className="muted small capture-box__note">
-            Signal keeps no history on its servers, so messages are collected as they arrive —
-            whenever this tray app is running, even with no AI chat open.
-          </p>
+          <div className="capture-box__import">
+            <p className="muted small capture-box__note">
+              Signal keeps no history on its servers, so messages are collected as they arrive —
+              whenever this tray app is running, even with no AI chat open. To back-fill the
+              past, import your Signal Desktop history (close Signal Desktop first).
+            </p>
+            <button
+              className="btn btn--small"
+              disabled={importing}
+              title="Read Signal Desktop's local database and add its message history to the store (deduplicated; safe to re-run)"
+              onClick={async () => {
+                setImporting(true);
+                setImportMsg(null);
+                try {
+                  const r = await api.signal.importDesktop();
+                  setImportMsg(
+                    r.ok
+                      ? {
+                          kind: "info",
+                          text: `Imported ${r.imported.toLocaleString()} message(s) from ${r.conversations} conversation(s)` +
+                            (r.skipped ? ` (${r.skipped.toLocaleString()} already present)` : "") + ".",
+                        }
+                      : { kind: "error", text: r.error || "Import failed." }
+                  );
+                } catch (e) {
+                  setImportMsg({ kind: "error", text: String(e?.message || e) });
+                } finally {
+                  setImporting(false);
+                }
+              }}
+            >
+              {importing ? "Importing…" : "Import Signal Desktop history…"}
+            </button>
+          </div>
+          {importMsg && (
+            <div className={importMsg.kind === "error" ? "error" : "muted small"}>{importMsg.text}</div>
+          )}
         </div>
       )}
 

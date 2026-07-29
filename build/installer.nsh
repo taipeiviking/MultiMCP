@@ -29,6 +29,17 @@
   ShowUninstDetails show
 !macroend
 
+; Since v0.9.x the app (and the AI clients) spawn a signal-cli daemon — a
+; java.exe running FROM $INSTDIR\resources\signal — which outlives the app by
+; design. It locks the JRE/jar files, and NSIS then hangs on "can't write file"
+; during an upgrade (observed live: silent installer stuck indefinitely). Kill
+; exactly the java processes whose image path is under our install dir — never
+; unrelated Java applications.
+!macro GWM_StopDaemon
+  nsExec::Exec `powershell -NoProfile -NonInteractive -Command "Get-Process java -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\*' } | Stop-Process -Force -ErrorAction SilentlyContinue"`
+  Sleep 300
+!macroend
+
 !macro GWM_StopApp
   ; IMPORTANT: electron-builder's installSection.nsh runs `SetDetailsPrint none`
   ; just before this check, which would SWALLOW our DetailPrint messages. Turn
@@ -57,6 +68,9 @@
     DetailPrint "Google Workspace Manager is not running - continuing installation."
   ${EndIf}
 
+  DetailPrint "Stopping the bundled Signal engine (if running)..."
+  !insertmacro GWM_StopDaemon
+
   SetDetailsPrint lastused ; restore the template's expected (quiet) state
 !macroend
 
@@ -70,6 +84,7 @@
 !macro customInit
   nsExec::Exec 'taskkill /F /IM "Google Workspace Manager.exe" /T'
   Sleep 300
+  !insertmacro GWM_StopDaemon
 !macroend
 
 ; ---- UNINSTALL: close the app + remove the autostart logon task -----------------
@@ -77,6 +92,7 @@
   DetailPrint "Closing Google Workspace Manager before uninstalling..."
   nsExec::ExecToLog 'taskkill /F /IM "Google Workspace Manager.exe" /T'
   Sleep 400
+  !insertmacro GWM_StopDaemon
   ; Remove the "At log on" scheduled task the app creates for autostart, so we
   ; don't leave an orphan task pointing at a deleted exe. (The HKCU Run value lives
   ; under the user's registry and is harmless if left, but we remove it too.)
