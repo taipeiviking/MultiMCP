@@ -4,6 +4,65 @@ All notable changes to **Google Workspace Manager** (MultiMCP), newest first. Ev
 also a [GitHub Release](https://github.com/taipeiviking/MultiMCP/releases) with the Windows
 installer attached. Versioning is `MAJOR.MINOR.PATCH`.
 
+## v0.9.0 — unreleased
+*Signal messenger joins Gmail/Drive/Calendar — link once with a QR code, then message from Claude or Codex.*
+
+### Added
+- **Signal messenger connector (beta).** A new **Signal** card on the dashboard links your Signal
+  account to this computer as a companion device — scan a QR code with your phone (Signal →
+  Settings → Linked devices), exactly like linking Signal Desktop. Once linked, **Write config**
+  adds a second connector, **`MultiMCP-Signal`**, next to the Google one (both Claude Desktop and
+  ChatGPT Codex), with tools to list contacts and groups, send messages, read and search received
+  messages, and wait for a reply. Unlink any time — from the card or from your phone.
+- **Bundled Signal engine.** [`signal-cli`](https://github.com/AsamK/signal-cli) 0.14.6 and a
+  Temurin 25 Java runtime ship inside the installer (like the bundled `uv`) — nothing to
+  install. The MCP server itself is a small Python package (`multimcp-signal`) shipped with the
+  app and launched by the bundled `uvx`, mirroring how the Google server runs. The installer is
+  now ~240 MB (up from ~90 MB).
+- All shared Signal state lives in `~\.multimcp\signal`; the AI clients spawn their own server
+  processes which coordinate through **one** background signal-cli daemon on a pinned local port
+  (`7583`) — the same "shared state, per-client server" design the Google side uses.
+
+### Fixed
+- **Removed the floating version bubble** in the top-right of the dashboard. It overlapped the
+  intro text at some window widths, and it only repeated the version that the window's title bar
+  already shows.
+
+### Fixed during live testing (before first release of the connector)
+- **Message capture actually receives messages now.** signal-cli's multi-account daemon pushes
+  nothing to a client until it calls `subscribeReceive` — and then wraps notifications in a
+  subscription object. The server now subscribes on connect and parses both notification shapes.
+- **The connector survives daemon loss.** A hard kill of the daemon (reboot, process cleanup)
+  used to leave a dead connection that silently answered forever; the reader now detects the
+  loss and every tool call transparently reconnects — respawning the daemon if needed.
+- **The daemon survives its spawner.** MCP clients put server processes in a Windows Job Object
+  that kills children on teardown; the daemon is now spawned with `CREATE_BREAKAWAY_FROM_JOB`
+  (with a graceful fallback) so it keeps running between sessions as designed.
+- **signal-cli is started via direct `java` invocation, never its `.bat` launcher.** The batch
+  file expands a ~100-jar classpath inline, which exceeds cmd.exe's 8191-character line limit
+  from the installed app's path ("The input line is too long") — the engine could not start (or
+  link) from a real install. Java expands the wildcard classpath itself, so the command stays
+  short from any path.
+- **The server is launched with `uv run --project`, not `uvx --from`.** uvx caches the built
+  tool environment and keeps serving STALE code after the source changes — which would have
+  pinned every user to the old server across app upgrades. `uv run` re-syncs an editable
+  install on each launch.
+
+- **Always-on message collector in the tray app.** Signal keeps no history on its servers, so a
+  message is only stored if something is listening when it arrives. The tray app (which
+  autostarts anyway) now holds a windowless background connection to the Signal engine and
+  collects messages around the clock — no AI chat needs to be open, and no console window
+  appears. A status box under the Signal card shows the collector state, message count, and
+  recent activity.
+
+### Notes
+- Signal keeps **no server-side message history**: the connector reads/searches what the
+  collector has stored since linking.
+- Sending always requires your explicit ask in the AI client; the usage-rules feature and tool
+  descriptions steer the AI to never message anyone unprompted.
+- After linking (or unlinking), click **Write config** (Claude and/or Codex) and restart that
+  client — the strips turn amber to remind you.
+
 ## v0.8.2 — 2026-07-16
 *Autostart stays in the tray on restart — no more dashboard popping open every login.*
 

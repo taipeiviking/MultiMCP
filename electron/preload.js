@@ -36,6 +36,20 @@ contextBridge.exposeInMainWorld("api", {
     status: (client) => ipcRenderer.invoke("guidance:status", { client }),
     apply: (client, targetKey) => ipcRenderer.invoke("guidance:apply", { client, targetKey }),
   },
+  signal: {
+    status: () => ipcRenderer.invoke("signal:status"),
+    link: () => ipcRenderer.invoke("signal:link"),
+    cancelLink: () => ipcRenderer.invoke("signal:linkCancel"),
+    unlink: () => ipcRenderer.invoke("signal:unlink"),
+    captureStatus: () => ipcRenderer.invoke("signal:captureStatus"),
+    // The link URI arrives mid-flow (link() is still pending when it does), so it
+    // comes as an event. Returns an unsubscribe function; no raw ipcRenderer leaks.
+    onLinkUri: (cb) => {
+      const listener = (_e, uri) => cb(uri);
+      ipcRenderer.on("signal:linkUri", listener);
+      return () => ipcRenderer.removeListener("signal:linkUri", listener);
+    },
+  },
   server: {
     test: () => ipcRenderer.invoke("server:test"),
   },

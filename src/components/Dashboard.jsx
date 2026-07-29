@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import AccountCard from "./AccountCard.jsx";
+import SignalCard from "./SignalCard.jsx";
 import ImportSettings from "./ImportSettings.jsx";
 import GuidanceModal from "./GuidanceModal.jsx";
 
@@ -7,6 +8,7 @@ const api = window.api;
 
 export default function Dashboard({ creds, onChangeCreds }) {
   const [accounts, setAccounts] = useState([]);
+  const [signalStatus, setSignalStatus] = useState(null);
   const [claude, setClaude] = useState(null);
   const [codex, setCodex] = useState(null);
   const [codexErr, setCodexErr] = useState("");
@@ -29,14 +31,16 @@ export default function Dashboard({ creds, onChangeCreds }) {
   }
 
   const refresh = useCallback(async () => {
-    const [a, c, x, gc, gx] = await Promise.all([
+    const [a, s, c, x, gc, gx] = await Promise.all([
       api.accounts.list(),
+      api.signal?.status().catch(() => null),
       api.claude.status(),
       api.codex?.status().catch(() => null),
       api.guidance?.status("claude").catch(() => null),
       api.guidance?.status("codex").catch(() => null),
     ]);
     setAccounts(a);
+    setSignalStatus(s);
     setClaude(c);
     setCodex(x);
     setGuidance({ claude: gc, codex: gx });
@@ -132,7 +136,7 @@ export default function Dashboard({ creds, onChangeCreds }) {
   return (
     <div className="dash">
       <div className="dash__head">
-        <h1>Accounts</h1>
+        <h1>Connected services</h1>
         <div className="modal__head-actions">
           <button
             className="btn btn--ghost btn--small"
@@ -152,27 +156,44 @@ export default function Dashboard({ creds, onChangeCreds }) {
         </div>
       </div>
 
-      <div className="add-row">
-        <input
-          value={newEmail}
-          onChange={(e) => setNewEmail(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addAccount()}
-          placeholder="add account email (e.g. you@yourdomain.com)"
-          spellCheck={false}
-        />
-        <button className="btn btn--primary" onClick={addAccount}>
-          Add
-        </button>
-      </div>
+      <section className="service">
+        <div className="service__head">
+          <h2>Google Workspace</h2>
+          <span className="muted small">Gmail, Drive &amp; Calendar — one card per account</span>
+        </div>
+        <div className="add-row">
+          <input
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addAccount()}
+            placeholder="add account email (e.g. you@yourdomain.com)"
+            spellCheck={false}
+          />
+          <button className="btn btn--primary" onClick={addAccount}>
+            Add
+          </button>
+        </div>
+        <div className="account-list">
+          {accounts.length === 0 && (
+            <p className="muted">No accounts yet. Add up to all your Workspace addresses above.</p>
+          )}
+          {accounts.map((acc) => (
+            <AccountCard key={acc.email} account={acc} onChanged={refresh} />
+          ))}
+        </div>
+      </section>
 
-      <div className="account-list">
-        {accounts.length === 0 && (
-          <p className="muted">No accounts yet. Add up to all your Workspace addresses above.</p>
-        )}
-        {accounts.map((acc) => (
-          <AccountCard key={acc.email} account={acc} onChanged={refresh} />
-        ))}
-      </div>
+      <section className="service">
+        <div className="service__head">
+          <h2>Signal messenger</h2>
+          <span className="muted small">
+            send &amp; read Signal messages from the AI — beta
+          </span>
+        </div>
+        <div className="account-list">
+          <SignalCard status={signalStatus} onChanged={refresh} />
+        </div>
+      </section>
 
       <ClaudeStrip
         claude={claude}

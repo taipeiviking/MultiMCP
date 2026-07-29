@@ -229,6 +229,37 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 }
 .modal__foot { padding: 8px 16px; border-top: 1px solid var(--line); }
 .modal__foot code { word-break: break-all; }
+.service { margin: 6px 0 18px; }
+.service__head {
+  display: flex; align-items: baseline; gap: 10px;
+  margin: 0 0 8px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.service__head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.capture-box {
+  margin: -4px 0 10px; padding: 10px 14px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.capture-box__head { display: flex; align-items: center; gap: 8px; }
+.capture-box__stats { margin-left: auto; }
+.capture-box__log {
+  margin: 8px 0 0; padding: 8px 10px; max-height: 130px; overflow: auto;
+  font-family: var(--mono); font-size: 11px; line-height: 1.5;
+  color: var(--muted); background: var(--bg);
+  border-radius: 6px; white-space: pre-wrap; word-break: break-word;
+}
+.capture-box__note { margin: 8px 0 0; }
+.qr-modal { width: min(420px, 92vw); }
+.qr-modal__body { padding: 18px 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.qr-modal__code {
+  width: 280px; height: 280px;
+  border-radius: 8px;
+  /* QR codes need a light quiet zone to scan reliably on a dark UI */
+  background: #fff; padding: 8px; box-sizing: content-box;
+}
+.qr-modal__steps { margin: 0; padding-left: 20px; align-self: flex-start; }
+.qr-modal__steps li { margin: 3px 0; }
 .toggle-row { justify-content: flex-start; cursor: pointer; }
 .toggle-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--amber); flex: none; }
 .toggle-row span { cursor: pointer; }
@@ -255,7 +286,6 @@ input:focus { outline: none; border-color: var(--amber-dim); }
 .setup__import p { margin: 0 0 10px; }
 .setup__import-or { display: flex; align-items: center; gap: 12px; margin: 6px 0 14px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
 .setup__import-or::before, .setup__import-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-.version-badge { position: absolute; top: 10px; right: 16px; font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--panel-2); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
 .topbar { position: relative; }
 code { font-family: var(--mono); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
 

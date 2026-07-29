@@ -25,3 +25,9 @@ google-workspace-manager.zip
 
 # self-signed code-signing material (never commit private key)
 build/selfsign/
+
+# python (multimcp-signal dev env)
+python/**/.venv/
+python/**/__pycache__/
+python/**/*.egg-info/
+uv.lock

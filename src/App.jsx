@@ -8,7 +8,6 @@ export default function App() {
   const [creds, setCreds] = useState(null);
   const [prereqs, setPrereqs] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [version, setVersion] = useState("");
 
   const refresh = useCallback(async () => {
     // Guard against a boot-time race: when the app autostarts right after login,
@@ -33,7 +32,6 @@ export default function App() {
     api.app
       ?.version()
       .then((v) => {
-        setVersion(v);
         // The page's <title> overrides the BrowserWindow title once loaded, so set
         // the document title here to keep the version visible in the OS title bar.
         if (v) document.title = `MultiMCP — Google Workspace Manager  v${v}`;
@@ -54,7 +52,9 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        {version && <span className="version-badge">v{version}</span>}
+        {/* No version badge here: the OS title bar (document.title above) already
+            shows it, and the floating chip overlapped the intro text at narrow
+            widths. */}
         <p className="brand__desc">
           Connect multiple Google Workspace accounts to <strong>Claude Desktop</strong> and{" "}
           <strong>OpenAI Codex</strong> — sign in once, and each gets Gmail, Drive &amp;

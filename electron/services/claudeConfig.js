@@ -7,12 +7,19 @@ const path = require("path");
 const credentials = require("./credentials");
 const serverManager = require("./serverManager");
 const noBrowser = require("./noBrowser");
+const signal = require("./signal");
 const log = require("./logger");
 
 // The key in claude_desktop_config.json IS the connector name Claude shows in its
 // UI. It used to be "google_workspace", which didn't match the tray app's name and
 // left people unsure the two were the same thing. Renamed to match the app.
 const SERVER_KEY = "MultiMCP";
+
+// Second managed entry: the Signal messenger connector (present only while a
+// Signal account is linked in the app). A separate server entry — NOT more tools
+// on the Google one — because it is a different server process with a different
+// lifecycle; sharing a key would couple their staleness and their restarts.
+const SIGNAL_SERVER_KEY = "MultiMCP-Signal";
 
 // Older names we must clean up when we (re)write the entry - otherwise Claude would
 // list the connector twice, and the stale one would still spawn a second server.
@@ -49,11 +56,11 @@ const CRITICAL_ENV = [
   "GOOGLE_OAUTH_CLIENT_ID",
 ];
 
-function entryMatches(existing, desired) {
+function entryMatches(existing, desired, critical = CRITICAL_ENV) {
   if (!existing || !existing.env) return false;
   if (existing.command !== desired.command) return false;
   if (JSON.stringify(existing.args) !== JSON.stringify(desired.args)) return false;
-  return CRITICAL_ENV.every((k) => existing.env[k] === desired.env[k]);
+  return critical.every((k) => existing.env[k] === desired.env[k]);
 }
 
 function configPath() {
@@ -95,7 +102,7 @@ function readRawForWrite() {
 // Prove the bytes that actually LANDED on disk are good - not just the string we meant
 // to write. Catches a truncated write, an encoding mangle, or an AV product rewriting
 // the file behind us. Anything returned here triggers a rollback to the backup.
-function verifyOnDisk(p, entry, preservedServers) {
+function verifyOnDisk(p, desired, preservedServers) {
   let onDisk;
   try {
     onDisk = JSON.parse(fs.readFileSync(p, "utf8"));
@@ -104,8 +111,15 @@ function verifyOnDisk(p, entry, preservedServers) {
   }
   const problems = [];
   const servers = (onDisk && onDisk.mcpServers) || {};
-  if (JSON.stringify(servers[SERVER_KEY]) !== JSON.stringify(entry)) {
-    problems.push(`the "${SERVER_KEY}" entry is missing or is not what we wrote`);
+  for (const [key, entry] of Object.entries(desired)) {
+    if (JSON.stringify(servers[key]) !== JSON.stringify(entry)) {
+      problems.push(`the "${key}" entry is missing or is not what we wrote`);
+    }
+  }
+  // A managed key we did NOT want this time (e.g. MultiMCP-Signal after an
+  // unlink) must actually be gone.
+  for (const k of MANAGED_KEYS) {
+    if (!(k in desired) && servers[k]) problems.push(`the "${k}" entry should have been removed`);
   }
   for (const k of LEGACY_SERVER_KEYS) {
     if (servers[k]) problems.push(`the legacy "${k}" entry is still present`);
@@ -114,6 +128,10 @@ function verifyOnDisk(p, entry, preservedServers) {
   if (lost.length) problems.push(`other MCP servers were lost: ${lost.join(", ")}`);
   return problems;
 }
+
+// Every key this app owns in the user's config. Anything else in mcpServers is
+// the user's and must never be touched.
+const MANAGED_KEYS = [SERVER_KEY, SIGNAL_SERVER_KEY];
 
 async function buildEntry() {
   const { clientId, credentialsDir } = await credentials.getClientConfig();
@@ -190,15 +208,50 @@ async function buildEntry() {
   };
 }
 
+// All entries this app wants in the config RIGHT NOW, with the env keys whose
+// drift makes each stale. The Signal entry appears only while an account is
+// linked (and the engine is bundled); when it should not exist, write/heal
+// REMOVE it — a connector Claude lists must actually work.
+async function desiredEntries() {
+  const entries = [
+    { key: SERVER_KEY, entry: await buildEntry(), critical: CRITICAL_ENV },
+  ];
+  const sig = await signal.buildEntryParts();
+  if (sig) entries.push({ key: SIGNAL_SERVER_KEY, entry: sig, critical: signal.CRITICAL_ENV });
+  return entries;
+}
+
+// Are all managed entries present+current, and no managed key present that
+// shouldn't be? Factored out because getStatus and healServerEntryIfStale must
+// agree on the answer — "in sync" in the UI and "entry ok" in the healer are
+// the same judgement.
+function entriesInSync(servers, desired) {
+  for (const { key, entry, critical } of desired) {
+    if (!entryMatches(servers[key], entry, critical)) return false;
+  }
+  for (const k of MANAGED_KEYS) {
+    if (!desired.some((d) => d.key === k) && servers[k]) return false;
+  }
+  return true;
+}
+
 async function getStatus() {
   const cfg = readConfig();
-  const existing = cfg.mcpServers && cfg.mcpServers[SERVER_KEY];
+  const servers = cfg.mcpServers || {};
+  const existing = servers[SERVER_KEY];
   const legacyKey = findLegacyKey(cfg);
-  const desired = await buildEntry();
+  const desired = await desiredEntries();
   // A leftover google_workspace entry means "not in sync" even if ours looks right:
   // Claude would spawn BOTH servers, and the old one still opens OAuth tabs.
-  const inSync = !legacyKey && entryMatches(existing, desired);
-  return { present: !!existing, inSync, legacyKey, path: configPath() };
+  const inSync = !legacyKey && entriesInSync(servers, desired);
+  return {
+    present: !!existing,
+    inSync,
+    legacyKey,
+    path: configPath(),
+    signalPresent: !!servers[SIGNAL_SERVER_KEY],
+    signalDesired: desired.some((d) => d.key === SIGNAL_SERVER_KEY),
+  };
 }
 
 // Self-heal a stale config at startup. Rewrites the google_workspace entry when:
@@ -255,8 +308,10 @@ async function healServerEntryIfStale() {
     // delivers a new setting - e.g. MCP_SINGLE_USER_MODE, the fix for the spurious
     // OAuth tabs - to machines that already have an entry. Comparing only the port
     // (as we used to) would report "entry ok" forever and they'd never get it.
-    const desired = await buildEntry();
-    const envStale = !entryMatches(existing, desired);
+    // Since v0.9.0 this judgement covers ALL managed entries (Google + Signal), so
+    // linking/unlinking Signal is delivered by the same heal path.
+    const desired = await desiredEntries();
+    const envStale = !entriesInSync(cfg.mcpServers || {}, desired);
 
     if (!isBare && !missing && !envStale) {
       return { healed: false, reason: "entry ok" };
@@ -269,14 +324,17 @@ async function healServerEntryIfStale() {
       return { healed: false, reason: "no valid uvx" };
     }
 
+    const googleDesired = desired[0].entry;
     const staleKeys = existing.env
-      ? CRITICAL_ENV.filter((k) => existing.env[k] !== desired.env[k])
+      ? CRITICAL_ENV.filter((k) => existing.env[k] !== googleDesired.env[k])
       : CRITICAL_ENV;
     const reason = isBare
       ? "bare command"
       : missing
         ? "missing file"
-        : `stale env: ${staleKeys.join(", ")}`;
+        : staleKeys.length
+          ? `stale env: ${staleKeys.join(", ")}`
+          : "signal entry drift";
     await writeServerEntry();
     log.info("claudeConfig", "Healed stale Claude config", {
       was: cmd,
@@ -315,7 +373,8 @@ async function writeServerEntry() {
   }
 
   cfg.mcpServers = cfg.mcpServers || {};
-  const entry = await buildEntry();
+  const desired = await desiredEntries();
+  const desiredMap = Object.fromEntries(desired.map((d) => [d.key, d.entry]));
 
   // Drop any entry we used to write under an older name. Without this the rename
   // leaves BOTH keys behind: Claude lists two connectors and spawns two servers,
@@ -323,8 +382,17 @@ async function writeServerEntry() {
   const removed = LEGACY_SERVER_KEYS.filter((k) => cfg.mcpServers[k]);
   for (const k of removed) delete cfg.mcpServers[k];
 
-  cfg.mcpServers[SERVER_KEY] = entry; // merge: only our key is replaced
-  const preserved = Object.keys(cfg.mcpServers).filter((k) => k !== SERVER_KEY);
+  // Managed keys that should no longer exist (a Signal entry after an unlink)
+  // go the same way — a listed connector that cannot work is worse than none.
+  for (const k of MANAGED_KEYS) {
+    if (!(k in desiredMap) && cfg.mcpServers[k]) {
+      delete cfg.mcpServers[k];
+      removed.push(k);
+    }
+  }
+
+  Object.assign(cfg.mcpServers, desiredMap); // merge: only our keys are replaced
+  const preserved = Object.keys(cfg.mcpServers).filter((k) => !(k in desiredMap));
 
   // Back up before touching.
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -352,7 +420,7 @@ async function writeServerEntry() {
 
   // Re-read from DISK and check what landed. Only here can a rollback be needed, and
   // leaving the user's file worse than we found it is the one outcome we will not have.
-  const problems = verifyOnDisk(p, entry, preserved);
+  const problems = verifyOnDisk(p, desiredMap, preserved);
   if (problems.length) {
     if (backup) fs.copyFileSync(backup, p);
     else fs.unlinkSync(p); // we created it; leave the machine as we found it
@@ -370,16 +438,18 @@ async function writeServerEntry() {
   // later Claude reinstall (which wipes the file) can be healed automatically.
   credentials.patchSettings({ claudeConfigWritten: true });
 
+  const googleEntry = desiredMap[SERVER_KEY];
   log.info("claudeConfig", "Wrote Claude Desktop config", {
     path: p,
     backup,
-    key: SERVER_KEY,
-    removedLegacyKeys: removed,
-    command: entry.command,
-    args: entry.args,
-    envKeys: Object.keys(entry.env),
-    secretInjected: Object.prototype.hasOwnProperty.call(entry.env, "GOOGLE_OAUTH_CLIENT_SECRET"),
-    browserSuppressed: !!entry.env.BROWSER,
+    keys: Object.keys(desiredMap),
+    removedKeys: removed,
+    command: googleEntry.command,
+    args: googleEntry.args,
+    envKeys: Object.keys(googleEntry.env),
+    secretInjected: Object.prototype.hasOwnProperty.call(googleEntry.env, "GOOGLE_OAUTH_CLIENT_SECRET"),
+    browserSuppressed: !!googleEntry.env.BROWSER,
+    signalEntry: SIGNAL_SERVER_KEY in desiredMap,
     preservedServers: preserved,
   });
 
@@ -392,4 +462,5 @@ module.exports = {
   healServerEntryIfStale,
   configPath,
   SERVER_KEY,
+  SIGNAL_SERVER_KEY,
 };

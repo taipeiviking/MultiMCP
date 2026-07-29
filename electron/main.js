@@ -31,6 +31,8 @@ const serverManager = require("./services/serverManager");
 const claudeConfig = require("./services/claudeConfig");
 const codexConfig = require("./services/codexConfig");
 const noBrowser = require("./services/noBrowser");
+const signal = require("./services/signal");
+const signalCapture = require("./services/signalCapture");
 const tokenGuard = require("./services/tokenGuard");
 const guidance = require("./services/guidance");
 const backup = require("./services/backup");
@@ -104,6 +106,10 @@ function bootstrap() {
       .then((r) => r.healed && log.info("app", "codex config auto-healed", r))
       .catch((e) => log.error("app", "codex heal error", { message: String(e) }));
     watchClientConfigs();
+    // Always-on Signal message capture (Signal has no server-side history; a
+    // message is only stored if something is listening when it arrives — and
+    // this tray app is the process that is always alive to listen).
+    signalCapture.start();
     createTray();
     const startHidden =
       process.argv.includes("--hidden") ||
@@ -123,6 +129,7 @@ function bootstrap() {
 
   app.on("before-quit", () => {
     isQuitting = true;
+    signalCapture.stop();
     if (expiryTimer) clearInterval(expiryTimer);
     for (const w of watchers) {
       try {
@@ -855,6 +862,29 @@ function registerIpc() {
       return { ok: false, error: String(e && e.message ? e.message : e) };
     }
   });
+
+  // Signal messenger. Linking is the analog of a Google sign-in: the main
+  // process runs `signal-cli link`, streams the sgnl:// URI to the renderer
+  // (which shows it as a QR code), and the promise settles when the phone
+  // finishes the link or the wait times out.
+  handle("signal:status", () => signal.getStatus());
+  handle("signal:link", () =>
+    signal.link({
+      onUri: (uri) => {
+        if (win && !win.isDestroyed()) win.webContents.send("signal:linkUri", uri);
+      },
+    })
+  );
+  handle("signal:linkCancel", () => signal.cancelLink());
+  handle("signal:unlink", async () => {
+    // The capture connection holds a socket to the daemon; release it so the
+    // unlink's busy-check and data-dir removal see a quiet engine, then resume.
+    signalCapture.stop();
+    const r = await signal.unlink();
+    signalCapture.start();
+    return r;
+  });
+  handle("signal:captureStatus", () => signalCapture.getStatus());
 
   // diagnostics
   handle("server:test", () => serverManager.testServer());

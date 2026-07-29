@@ -15,11 +15,17 @@ const path = require("path");
 const credentials = require("./credentials");
 const serverManager = require("./serverManager");
 const noBrowser = require("./noBrowser");
+const signal = require("./signal");
 const tomlEdit = require("./tomlEdit");
 const log = require("./logger");
 
 const SERVER_KEY = "MultiMCP";
 const TABLE_PATH = ["mcp_servers", SERVER_KEY]; // note: Codex uses mcp_servers (underscore)
+
+// Second managed entry: the Signal connector (claudeConfig.SIGNAL_SERVER_KEY is
+// the same name — the two clients must show the same connector list).
+const SIGNAL_SERVER_KEY = "MultiMCP-Signal";
+const SIGNAL_TABLE_PATH = ["mcp_servers", SIGNAL_SERVER_KEY];
 
 // The old connector name. A config.toml that still has [mcp_servers.google_workspace]
 // was written by an older build of ours. Left in place, Codex spawns BOTH servers,
@@ -96,6 +102,13 @@ const SENTINELS = {
   begin: "# >>> MultiMCP (managed by Google Workspace Manager) - regenerated on write, do not edit",
 };
 
+// The Signal block gets its OWN marker text: planRemoval finds a block's
+// sentinel by exact string, so sharing one would let a rewrite of one entry
+// swallow the other's comment line.
+const SIGNAL_SENTINELS = {
+  begin: "# >>> MultiMCP-Signal (managed by Google Workspace Manager) - regenerated on write, do not edit",
+};
+
 // Env keys that must match for an existing entry to count as up to date. Same
 // contract as claudeConfig.CRITICAL_ENV: anything load-bearing MUST be listed, or
 // existing installs keep a stale entry forever.
@@ -168,6 +181,25 @@ async function buildEntry() {
   return { scalars, env, expected: Object.assign({}, scalars, { env }) };
 }
 
+// The Signal entry in Codex form, or null when it should not exist (not linked /
+// engine not bundled). Same env contract as the Claude entry (signal.js owns it).
+async function buildSignalEntry() {
+  const parts = await signal.buildEntryParts();
+  if (!parts) return null;
+  const scalars = {
+    command: parts.command,
+    args: parts.args,
+    // The first launch has uv build the local multimcp-signal package and then
+    // start a JVM daemon — comfortably beyond Codex's 10s default, same reason
+    // as the Google entry above.
+    startup_timeout_sec: 120,
+    // wait_for_message is the long pole: the tool's own timeout must win, not
+    // Codex's.
+    tool_timeout_sec: 300,
+  };
+  return { scalars, env: parts.env, expected: Object.assign({}, scalars, { env: parts.env }) };
+}
+
 async function writeServerEntry() {
   const p = configPath();
   const raw = readRaw(); // throws (rather than returning "") if the file is unreadable
@@ -224,6 +256,61 @@ async function writeServerEntry() {
     log.error("codexConfig", "refusing to write: validation failed", { path: p, problems });
     throw new Error(`Refusing to write ${p}: ${problems.join("; ")}`);
   }
+  workingRaw = edit.text;
+  // Re-baseline for the next edit: validateEdit forbids ANY sibling change, so
+  // each sequential edit is validated against the text the previous one produced
+  // (the legacy-removal loop above set the precedent).
+  let baseline = tomlEdit.parseOrNull(workingRaw);
+
+  // 2b. The Signal entry: upsert while linked, remove when not. Each direction is
+  //     its own validated edit, so a slicing bug still degrades to "refuse", never
+  //     to a corrupted file.
+  const sig = await buildSignalEntry();
+  if (sig) {
+    const sigEdit = tomlEdit.upsertTable(workingRaw, {
+      path: SIGNAL_TABLE_PATH,
+      scalars: sig.scalars,
+      subTables: { env: sig.env },
+      sentinels: SIGNAL_SENTINELS,
+    });
+    const sigProblems = tomlEdit.validateEdit(baseline, sigEdit.text, SIGNAL_TABLE_PATH, sig.expected);
+    if (sigProblems.length) {
+      log.error("codexConfig", "refusing to write: signal validation failed", { path: p, problems: sigProblems });
+      throw new Error(`Refusing to write ${p}: ${sigProblems.join("; ")}`);
+    }
+    workingRaw = sigEdit.text;
+    baseline = tomlEdit.parseOrNull(workingRaw);
+  } else {
+    const r = tomlEdit.removeTable(workingRaw, SIGNAL_TABLE_PATH);
+    if (r.removed) {
+      const after = tomlEdit.parseOrNull(r.text);
+      if (after === null) {
+        throw new Error(`Refusing to write ${p}: removing "${SIGNAL_SERVER_KEY}" produced invalid TOML`);
+      }
+      const rmProblems = validateRemoval(baseline, after, SIGNAL_SERVER_KEY);
+      if (rmProblems.length) {
+        log.error("codexConfig", "refusing to write: signal removal changed too much", { path: p, problems: rmProblems });
+        throw new Error(`Refusing to write ${p}: removing "${SIGNAL_SERVER_KEY}" changed more than expected (${rmProblems.join("; ")})`);
+      }
+      log.info("codexConfig", "Removed Signal connector (no longer linked)");
+      workingRaw = r.text;
+      baseline = after;
+
+      // removeTable is structural and knows nothing of sentinels, so our marker
+      // comment above the removed block survives as litter. It is an EXACT line
+      // we wrote; dropping it cannot change parsed content — verified anyway.
+      const lines = workingRaw.split(/\r?\n/);
+      const kept = lines.filter((l) => l.trim() !== SIGNAL_SENTINELS.begin);
+      if (kept.length !== lines.length) {
+        const eol = /\r\n/.test(workingRaw) ? "\r\n" : "\n";
+        const candidate = kept.join(eol);
+        const reparsed = tomlEdit.parseOrNull(candidate);
+        if (reparsed !== null && tomlEdit.deepEqual(reparsed, baseline)) {
+          workingRaw = candidate;
+        }
+      }
+    }
+  }
 
   // 3. Timestamped backup (claudeConfig.js convention).
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -239,17 +326,25 @@ async function writeServerEntry() {
   const tmp = `${p}.tmp`;
   const fd = fs.openSync(tmp, "w", 0o600);
   try {
-    fs.writeFileSync(fd, edit.text);
+    fs.writeFileSync(fd, workingRaw);
     fs.fsyncSync(fd);
   } finally {
     fs.closeSync(fd);
   }
   fs.renameSync(tmp, p);
 
-  // 5. Re-read from DISK and validate again. Step 2 proved the string was good;
-  //    this proves the bytes that actually landed are good (encoding, truncation,
-  //    an AV product rewriting the file). Only here can a rollback be needed.
-  const problemsOnDisk = tomlEdit.validateEdit(oldParsedClean, fs.readFileSync(p, "utf8"), TABLE_PATH, expected);
+  // 5. Re-read from DISK and validate again. The per-edit validations above proved
+  //    the STRING was good; this proves the bytes that actually landed are good
+  //    (encoding, truncation, an AV product rewriting the file) by comparing the
+  //    on-disk parse against the validated in-memory parse. Only here can a
+  //    rollback be needed.
+  const onDisk = tomlEdit.parseOrNull(fs.readFileSync(p, "utf8"));
+  const problemsOnDisk =
+    onDisk === null
+      ? ["it does not re-read as valid TOML"]
+      : tomlEdit.deepEqual(onDisk, baseline)
+        ? []
+        : ["the file on disk does not match what we wrote"];
   if (problemsOnDisk.length) {
     if (backup) fs.copyFileSync(backup, p);
     else fs.unlinkSync(p); // we created it; leave the machine as we found it
@@ -278,7 +373,7 @@ async function writeServerEntry() {
   log.info("codexConfig", "Wrote Codex config", {
     path: p,
     backup,
-    key: SERVER_KEY,
+    keys: sig ? [SERVER_KEY, SIGNAL_SERVER_KEY] : [SERVER_KEY],
     form: edit.form, // "header" (normal) or "dotted" (file already used dotted keys)
     replacedExisting: edit.replaced,
     eol: edit.eol === "\r\n" ? "CRLF" : "LF",
@@ -287,13 +382,15 @@ async function writeServerEntry() {
     envKeys: Object.keys(env),
     secretInjected: Object.prototype.hasOwnProperty.call(env, "GOOGLE_OAUTH_CLIENT_SECRET"),
     browserSuppressed: !!env.BROWSER,
-    preservedServers: Object.keys(oldParsedClean.mcp_servers || {}).filter((k) => k !== SERVER_KEY),
+    preservedServers: Object.keys(oldParsedClean.mcp_servers || {}).filter(
+      (k) => k !== SERVER_KEY && k !== SIGNAL_SERVER_KEY
+    ),
   });
 
   return { ok: true, path: p, note: "Restart Codex to load changes." };
 }
 
-function entryMatches(existing, expected) {
+function entryMatches(existing, expected, critical = CRITICAL_ENV) {
   if (!existing || !existing.env) return false;
   if (existing.command !== expected.command) return false;
   if (JSON.stringify(existing.args) !== JSON.stringify(expected.args)) return false;
@@ -304,7 +401,21 @@ function entryMatches(existing, expected) {
   // the old 60s timeout would never be upgraded.
   if (Number(existing.startup_timeout_sec) !== Number(expected.startup_timeout_sec)) return false;
   if (Number(existing.tool_timeout_sec) !== Number(expected.tool_timeout_sec)) return false;
-  return CRITICAL_ENV.every((k) => existing.env[k] === expected.env[k]);
+  return critical.every((k) => existing.env[k] === expected.env[k]);
+}
+
+// Is the Signal entry in the state it should be in? Shared by getStatus and
+// healServerEntryIfStale so the UI's "in sync" and the healer's "entry ok" are
+// the same judgement.
+async function signalSyncState(parsed) {
+  const existing = parsed.mcp_servers && parsed.mcp_servers[SIGNAL_SERVER_KEY];
+  const sig = await buildSignalEntry();
+  if (!sig) return { present: !!existing, desired: false, inSync: !existing };
+  return {
+    present: !!existing,
+    desired: true,
+    inSync: entryMatches(existing, sig.expected, signal.CRITICAL_ENV),
+  };
 }
 
 // Is Codex on this machine at all? Used only to decide whether the UI shows the
@@ -369,6 +480,7 @@ async function getStatus() {
   const existing = parsed.mcp_servers && parsed.mcp_servers[SERVER_KEY];
   const { expected } = await buildEntry();
   const legacyKey = findLegacyKeys(parsed)[0] || null;
+  const signalState = await signalSyncState(parsed);
   return {
     // If our entry is already in there, treat Codex as installed no matter what
     // detection thinks - never grey out a section that has live state in it.
@@ -377,9 +489,11 @@ async function getStatus() {
     present: !!existing,
     // A leftover google_workspace entry means "not in sync" even if ours looks right:
     // Codex would spawn BOTH servers and the old one still opens OAuth tabs.
-    inSync: !legacyKey && entryMatches(existing, expected),
+    inSync: !legacyKey && entryMatches(existing, expected) && signalState.inSync,
     legacyKey,
     path: p,
+    signalPresent: signalState.present,
+    signalDesired: signalState.desired,
   };
 }
 
@@ -430,7 +544,10 @@ async function healServerEntryIfStale() {
     const missing = cmd && path.isAbsolute(cmd) && !fs.existsSync(cmd);
     const { expected } = await buildEntry();
     const envStale = !entryMatches(existing, expected);
-    if (!isBare && !missing && !envStale) return { healed: false, reason: "entry ok" };
+    const signalState = await signalSyncState(parsed);
+    if (!isBare && !missing && !envStale && signalState.inSync) {
+      return { healed: false, reason: "entry ok" };
+    }
 
     const good = await serverManager.resolveUvxPath();
     if (!good || !fs.existsSync(good)) return { healed: false, reason: "no valid uvx" };
@@ -438,7 +555,13 @@ async function healServerEntryIfStale() {
     const staleKeys = existing.env
       ? CRITICAL_ENV.filter((k) => existing.env[k] !== expected.env[k])
       : CRITICAL_ENV;
-    const reason = isBare ? "bare command" : missing ? "missing file" : `stale env: ${staleKeys.join(", ")}`;
+    const reason = isBare
+      ? "bare command"
+      : missing
+        ? "missing file"
+        : envStale
+          ? `stale env: ${staleKeys.join(", ")}`
+          : "signal entry drift";
     await writeServerEntry();
     log.info("codexConfig", "Healed stale Codex config", { was: cmd, now: good, reason });
     return { healed: true, was: cmd, now: good, reason };
@@ -455,6 +578,8 @@ module.exports = {
   configPath,
   buildEntry,
   SERVER_KEY,
+  SIGNAL_SERVER_KEY,
   CODEX_MCP_PORT,
   SENTINELS,
+  SIGNAL_SENTINELS,
 };

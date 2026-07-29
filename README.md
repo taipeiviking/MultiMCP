@@ -23,6 +23,14 @@ client config.
    another computer), add each account and **Sign in**, click **Write config** (and/or
    **Write Codex config**), and restart the AI client.
 
+> **New in v0.9.0 — Signal messenger (beta).** The dashboard now has a **Signal** card: link your
+> Signal account by scanning a QR code with your phone (Signal → Settings → Linked devices — the
+> same flow as Signal Desktop), then click **Write config** again. Claude/Codex get a second
+> connector, **`MultiMCP-Signal`**, that can list your contacts and groups, send messages, and
+> read/search/wait for incoming messages. Signal keeps no server-side history, so reading starts
+> from the moment you link. The Signal engine (signal-cli + a Java runtime) is bundled — nothing
+> to install. Design notes: [docs/SIGNAL_PLAN.md](docs/SIGNAL_PLAN.md).
+
 > **New in v0.5.0 — OpenAI Codex support.** Next to the Claude **Write config** button there
 > is now a **Write Codex config** button, which adds the same connector to OpenAI Codex in
 > one click. There is nothing to re-authorize: Codex is pointed at the same credentials, so

@@ -1,6 +1,6 @@
 {
   "name": "google-workspace-manager",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "Local control panel to connect multiple Google Workspace accounts to Claude Desktop via workspace-mcp.",
   "author": "",
   "license": "MIT",
@@ -9,8 +9,9 @@
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
     "dev:renderer": "vite",
     "fetch-uv": "node scripts/fetch-uv.js",
+    "fetch-signal": "node scripts/fetch-signal.js",
     "build": "vite build",
-    "dist": "npm run fetch-uv && npm run build && electron-builder --win nsis",
+    "dist": "npm run fetch-uv && npm run fetch-signal && npm run build && electron-builder --win nsis",
     "rebuild": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
     "concurrently": "^9.0.1",
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vite": "^5.4.0",
@@ -51,6 +53,26 @@
           "uv.exe",
           "uvx.exe",
           "uvw.exe"
+        ]
+      },
+      {
+        "from": "vendor/signal",
+        "to": "signal",
+        "filter": [
+          "**/*",
+          "!*.tar.gz",
+          "!*.zip"
+        ]
+      },
+      {
+        "from": "python/multimcp-signal",
+        "to": "mcp-signal",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/dist/**",
+          "!**/.venv/**"
         ]
       }
     ],
