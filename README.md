@@ -306,5 +306,7 @@ src/
 The transient sign-in server this app launches, and the stdio servers Claude Desktop and
 Codex launch, all point at the **same** fixed `GOOGLE_MCP_CREDENTIALS_DIR`. Tokens
 primed here are therefore available to both clients automatically. There is one token
+
+<meta name="google-site-verification" content="SKs9XkqfsDmqWUBlwfUR88nErIkKBVXAUvRSFoN3iIM" />
 store, one OAuth client, many accounts. See `SPEC.md` §3 and §6b for the confirmed
 `start_google_auth` flow.
